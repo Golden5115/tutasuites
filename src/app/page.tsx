@@ -1,65 +1,198 @@
-import Image from "next/image";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { getAvailableRooms, getOccupiedRooms, checkOutGuest, extendStay } from "./actions"
+import { LogIn, LogOut, BedDouble, User, CalendarPlus, Banknote, DoorOpen } from "lucide-react"
+import { prisma } from "@/lib/prisma"
+import { CheckInForm } from "@/components/check-in-form"
+import { ExtendStayForm } from "@/components/extend-stay-form"
+import { CheckOutButton } from "@/components/check-out-button"
 
-export default function Home() {
+// A helper to seed the 6 exact rooms for the hotel
+async function ensureRoomsExist() {
+  const classicRoom = await prisma.room.findFirst({ where: { number: "104" } })
+  if (!classicRoom) {
+    // Reset to ensure we exactly match the rooms requested
+    await prisma.reservation.deleteMany()
+    await prisma.room.deleteMany()
+    await prisma.roomType.deleteMany()
+
+    const signature = await prisma.roomType.create({ data: { name: "Signature suite", basePrice: 40000, capacity: 4 } })
+    const executive = await prisma.roomType.create({ data: { name: "Executive suite", basePrice: 35000, capacity: 2 } })
+    const premium = await prisma.roomType.create({ data: { name: "Premium suite", basePrice: 30000, capacity: 2 } })
+    const classic = await prisma.roomType.create({ data: { name: "Classic suite", basePrice: 25000, capacity: 2 } })
+    
+    await prisma.room.createMany({
+      data: [
+        { number: "101", roomTypeId: premium.id },
+        { number: "102", roomTypeId: executive.id },
+        { number: "103", roomTypeId: executive.id },
+        { number: "104", roomTypeId: classic.id },
+        { number: "105", roomTypeId: signature.id },
+        { number: "106", roomTypeId: signature.id },
+      ]
+    })
+  }
+}
+
+export default async function Dashboard() {
+  await ensureRoomsExist()
+  
+  const availableRooms = await getAvailableRooms()
+  const occupiedRooms = await getOccupiedRooms()
+
+  const totalRooms = 6
+  const occupiedCount = occupiedRooms.length
+  const availableCount = totalRooms - occupiedCount
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div className="animate-slide-up">
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gradient-gold pb-1">
+          Front Desk
+        </h1>
+        <p className="text-sm text-muted-foreground/60 font-medium mt-1">
+          Manage arrivals, departures, and room assignments.
+        </p>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-3 gap-4 animate-slide-up-delay-1">
+        <div className="glass-panel p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+              <BedDouble className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{totalRooms}</p>
+              <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">Total Rooms</p>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="glass-panel p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <DoorOpen className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{availableCount}</p>
+              <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">Available</p>
+            </div>
+          </div>
         </div>
-      </main>
+        <div className="glass-panel p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+              <User className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{occupiedCount}</p>
+              <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">Occupied</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Grid */}
+      <div className="grid gap-6 lg:grid-cols-12 animate-slide-up-delay-2">
+        {/* CHECK IN FORM */}
+        <Card className="lg:col-span-7 glass-panel">
+          <CardHeader className="border-b border-black/[0.04] dark:border-white/[0.06] pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+                <LogIn className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-heading font-semibold tracking-wide">New Check-In</CardTitle>
+                <CardDescription className="text-xs text-muted-foreground/60">Register a guest and assign rooms.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CheckInForm availableRooms={availableRooms} />
+        </Card>
+
+        {/* ACTIVE ROOMS / CHECKOUT */}
+        <div className="lg:col-span-5">
+          <Card className="glass-panel">
+            <CardHeader className="border-b border-black/[0.04] dark:border-white/[0.06] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                  <BedDouble className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-heading font-semibold tracking-wide">Active Rooms</CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground/60">Manage stays and process departures.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-4">
+              {occupiedRooms.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4">
+                    <BedDouble className="h-8 w-8 text-muted-foreground/20" />
+                  </div>
+                  <p className="text-sm text-muted-foreground/40 font-medium">All rooms are vacant</p>
+                  <p className="text-xs text-muted-foreground/30 mt-1">Rooms will appear here when guests check in.</p>
+                </div>
+              ) : (
+                occupiedRooms.map(room => {
+                  const reservation = room.reservations[0]
+                  if (!reservation) return null
+                  
+                  return (
+                    <div key={room.id} className="occupied-card flex flex-col gap-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-lg text-foreground">Room {room.number}</h3>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary/70 mt-0.5">{room.roomType?.name || 'Standard'}</p>
+                        </div>
+                        <div className="stat-badge">
+                          <User className="h-3 w-3" />
+                          {reservation.numberOfGuests}
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1.5 bg-black/[0.02] dark:bg-white/[0.02] p-3 rounded-xl border border-black/[0.03] dark:border-white/[0.04]">
+                        <p className="text-sm flex items-center gap-2">
+                          <span className="text-muted-foreground/50 text-xs font-medium w-14">Guest</span>
+                          <span className="font-semibold text-foreground text-sm">{reservation.guest.firstName} {reservation.guest.lastName}</span>
+                        </p>
+                        <p className="text-sm flex items-center gap-2">
+                          <span className="text-muted-foreground/50 text-xs font-medium w-14">Phone</span>
+                          <span className="text-foreground/70 text-sm">{reservation.guest.phone}</span>
+                        </p>
+                        {reservation.valuableAssets && (
+                          <p className="text-sm flex items-center gap-2">
+                            <span className="text-muted-foreground/50 text-xs font-medium w-14">Assets</span>
+                            <span className="text-primary/80 text-sm font-medium">{reservation.valuableAssets}</span>
+                          </p>
+                        )}
+                        <p className="text-sm flex items-center gap-2">
+                          <span className="text-muted-foreground/50 text-xs font-medium w-14">Paid</span>
+                          <span className="text-primary font-bold text-sm">₦{reservation.totalAmount.toLocaleString()}</span>
+                        </p>
+                        <p className="text-sm flex items-center gap-2">
+                          <span className="text-muted-foreground/50 text-xs font-medium w-14">Due</span>
+                          <span className="text-foreground text-xs font-medium">{new Date(reservation.checkOut).toLocaleString('en-NG', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+                        </p>
+                      </div>
+
+                      {/* Extend Stay */}
+                      <div className="pt-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/40 mb-2">Extend Stay</p>
+                        <ExtendStayForm reservationId={reservation.id} basePrice={room.roomType?.basePrice || 0} />
+                      </div>
+
+                      <CheckOutButton roomId={room.id} reservationId={reservation.id} />
+                    </div>
+                  )
+                })
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
-  );
+  )
 }

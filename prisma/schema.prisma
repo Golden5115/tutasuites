@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model RoomType {
+  id          String   @id @default(cuid())
+  name        String   // e.g. "Deluxe", "Suite"
+  description String?
+  basePrice   Float
+  capacity    Int
+  rooms       Room[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Room {
+  id           String        @id @default(cuid())
+  number       String        @unique // e.g. "101", "102"
+  roomTypeId   String
+  roomType     RoomType      @relation(fields: [roomTypeId], references: [id])
+  status       String        @default("AVAILABLE") // AVAILABLE, OCCUPIED, MAINTENANCE, CLEANING
+  reservations Reservation[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Guest {
+  id           String        @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  address      String?
+  documentId   String?       // Passport/ID
+  reservations Reservation[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Reservation {
+  id               String   @id @default(cuid())
+  guestId          String
+  guest            Guest    @relation(fields: [guestId], references: [id])
+  roomId           String
+  room             Room     @relation(fields: [roomId], references: [id])
+  checkIn          DateTime
+  checkOut         DateTime
+  actualCheckOut   DateTime?
+  numberOfGuests   Int      @default(1)
+  valuableAssets   String?  
+  status           String   @default("CONFIRMED") // PENDING, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED
+  bookingReference String?
+  totalAmount      Float
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
