@@ -74,7 +74,7 @@ export async function checkInGuest(formData: FormData) {
   }
 
   for (const roomId of roomIds) {
-    const room = rooms.find(r => r.id === roomId)
+    const room = rooms.find((r: any) => r.id === roomId)
     const roomPrice = room?.roomType?.basePrice || 0
 
     await prisma.reservation.create({

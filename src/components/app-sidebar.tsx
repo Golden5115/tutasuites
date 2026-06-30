@@ -52,16 +52,16 @@ export function AppSidebar() {
     <Sidebar className="border-r border-black/[0.04] dark:border-white/[0.06] bg-white/80 dark:bg-[rgba(9,9,11,0.95)] backdrop-blur-2xl">
       <SidebarHeader className="px-6 pt-8 pb-6 flex flex-col items-center justify-center border-b border-black/[0.04] dark:border-white/[0.06]">
         <div className="relative w-36 h-18 mb-3">
-          <Image 
-            src="/logo.png" 
-            alt="TutaSuites Logo" 
-            fill 
-            className="object-contain dark:invert" 
+          <Image
+            src="/logo.png"
+            alt="TutaSuites Logo"
+            fill
+            className="object-contain dark:invert"
             priority
           />
         </div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black/60 dark:text-white/60 text-center mt-1">
-          Management System
+          Tatasuites Management System
         </p>
       </SidebarHeader>
       <SidebarContent className="px-3 py-6">
@@ -73,7 +73,7 @@ export function AppSidebar() {
             <SidebarMenu className="space-y-0.5">
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
+                  <SidebarMenuButton
                     className="hover:bg-primary/8 dark:hover:bg-primary/10 hover:text-foreground transition-all duration-200 rounded-xl py-3 px-4 group/btn"
                     render={<a href={item.url} />}
                   >
