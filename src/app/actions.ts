@@ -98,6 +98,7 @@ export async function checkInGuest(formData: FormData) {
   }
 
   revalidatePath("/")
+  revalidatePath("/reservations")
   return { success: true }
 }
 
@@ -126,6 +127,7 @@ export async function extendStay(formData: FormData) {
   })
 
   revalidatePath("/")
+  revalidatePath("/reservations")
   return { success: true }
 }
 
@@ -146,5 +148,6 @@ export async function checkOutGuest(roomId: string, reservationId: string) {
   })
 
   revalidatePath("/")
+  revalidatePath("/reservations")
   return { success: true }
 }

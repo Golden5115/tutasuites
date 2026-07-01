@@ -130,7 +130,7 @@ export default async function ReservationsPage() {
                             ? 'bg-emerald-500/8 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15'
                             : 'bg-muted text-muted-foreground/60 border border-black/[0.04] dark:border-white/[0.06]'
                         }`}>
-                          {res.status === 'CHECKED_IN' ? 'Active' : res.status === 'CHECKED_OUT' ? 'Completed' : res.status.replace('_', ' ')}
+                          {res.status === 'CHECKED_IN' ? 'Active' : res.status === 'CHECKED_OUT' ? 'Complete' : res.status.replace('_', ' ')}
                         </span>
                       </td>
                     </tr>
