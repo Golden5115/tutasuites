@@ -10,14 +10,21 @@ datasource db {
 }
 
 model RoomType {
-  id          String   @id @default(cuid())
-  name        String   // e.g. "Deluxe", "Suite"
-  description String?
-  basePrice   Float
-  capacity    Int
-  rooms       Room[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String   // e.g. "Deluxe", "Suite"
+  slug         String   @unique // URL-friendly name e.g. "deluxe-suite"
+  description  String?
+  basePrice    Float
+  capacity     Int
+  bedType      String?  // "King Bed", "Twin Bed"
+  size         String?  // "45 sqm"
+  images       String[] // Array of image URLs
+  facilities   String[] // ["WiFi", "AC", "Smart TV", ...]
+  rules        String?  // House rules text
+  cancellation String?  // Cancellation policy text
+  rooms        Room[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Room {
@@ -32,32 +39,108 @@ model Room {
 }
 
 model Guest {
-  id           String        @id @default(cuid())
-  firstName    String
-  lastName     String
-  email        String?
-  phone        String?
-  address      String?
-  documentId   String?       // Passport/ID
-  reservations Reservation[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String?
+  address         String?
+  country         String?
+  specialRequests String?
+  documentId      String?       // Passport/ID
+  reservations    Reservation[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
 model Reservation {
-  id               String   @id @default(cuid())
+  id               String         @id @default(cuid())
   guestId          String
-  guest            Guest    @relation(fields: [guestId], references: [id])
+  guest            Guest          @relation(fields: [guestId], references: [id])
   roomId           String
-  room             Room     @relation(fields: [roomId], references: [id])
+  room             Room           @relation(fields: [roomId], references: [id])
   checkIn          DateTime
   checkOut         DateTime
   actualCheckOut   DateTime?
-  numberOfGuests   Int      @default(1)
+  numberOfGuests   Int            @default(1)
+  adults           Int            @default(1)
+  children         Int            @default(0)
+  nights           Int            @default(1)
   valuableAssets   String?  
-  status           String   @default("CONFIRMED") // PENDING, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED
-  bookingReference String?
+  status           String         @default("CONFIRMED") // PENDING, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED, NO_SHOW
+  bookingReference String?        @unique
+  roomPrice        Float          @default(0)
+  taxAmount        Float          @default(0)
+  serviceCharge    Float          @default(0)
+  extrasAmount     Float          @default(0)
   totalAmount      Float
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  paymentStatus    String         @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, REFUNDED, FAILED
+  payment          Payment?
+  extras           BookingExtra[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model Payment {
+  id            String      @id @default(cuid())
+  reservationId String      @unique
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  amount        Float
+  currency      String      @default("NGN")
+  status        String      @default("PENDING") // PENDING, SUCCESS, FAILED
+  provider      String      @default("PAYSTACK")
+  reference     String      @unique
+  metadata      String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model BookingExtra {
+  id            String      @id @default(cuid())
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  name          String
+  price         Float
+  quantity      Int         @default(1)
+  createdAt     DateTime    @default(now())
+}
+
+model SiteSettings {
+  id             String   @id @default(cuid())
+  taxPercent     Float    @default(7.5)
+  servicePercent Float    @default(5.0)
+  currency       String   @default("NGN")
+  currencySymbol String   @default("₦")
+  hotelName      String   @default("Tuta Suites")
+  hotelAddress   String?
+  hotelPhone     String?
+  hotelEmail     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN
+  FRONT_DESK
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String    
+  role          Role      @default(FRONT_DESK)
+  modules       String[]  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  amount      Float
+  category    String   // e.g., Utilities, Salary, Maintenance, Supplies
+  description String
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

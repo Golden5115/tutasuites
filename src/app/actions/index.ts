@@ -77,7 +77,7 @@ export async function checkInGuest(formData: FormData) {
     const room = rooms.find((r: any) => r.id === roomId)
     const roomPrice = room?.roomType?.basePrice || 0
 
-    await prisma.reservation.create({
+    const newReservation = await prisma.reservation.create({
       data: {
         guestId: guest.id,
         roomId: roomId,
@@ -95,10 +95,15 @@ export async function checkInGuest(formData: FormData) {
       where: { id: roomId },
       data: { status: "OCCUPIED" }
     })
+    
+    // Fire off confirmation email in background (no await to avoid blocking)
+    import("@/lib/email").then((module) => {
+      module.sendBookingConfirmation(newReservation.id)
+    })
   }
 
-  revalidatePath("/")
-  revalidatePath("/reservations")
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/reservations")
   return { success: true }
 }
 
@@ -126,8 +131,8 @@ export async function extendStay(formData: FormData) {
     }
   })
 
-  revalidatePath("/")
-  revalidatePath("/reservations")
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/reservations")
   return { success: true }
 }
 
@@ -141,13 +146,25 @@ export async function checkOutGuest(roomId: string, reservationId: string) {
     }
   })
 
-  // Update Room Status to AVAILABLE
+  // Update Room Status to CLEANING instead of AVAILABLE
+  await prisma.room.update({
+    where: { id: roomId },
+    data: { status: "CLEANING" }
+  })
+
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/reservations")
+  revalidatePath("/dashboard/housekeeping")
+  return { success: true }
+}
+
+export async function markRoomAsClean(roomId: string) {
   await prisma.room.update({
     where: { id: roomId },
     data: { status: "AVAILABLE" }
   })
 
-  revalidatePath("/")
-  revalidatePath("/reservations")
+  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/housekeeping")
   return { success: true }
 }

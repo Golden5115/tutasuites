@@ -1,43 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { getAvailableRooms, getOccupiedRooms, checkOutGuest, extendStay } from "./actions"
+import { getAvailableRooms, getOccupiedRooms, checkOutGuest, extendStay } from "@/app/actions"
 import { LogIn, LogOut, BedDouble, User, CalendarPlus, Banknote, DoorOpen } from "lucide-react"
 import { prisma } from "@/lib/prisma"
 import { CheckInForm } from "@/components/check-in-form"
 import { ExtendStayForm } from "@/components/extend-stay-form"
 import { CheckOutButton } from "@/components/check-out-button"
-
-// A helper to seed the 6 exact rooms for the hotel
-async function ensureRoomsExist() {
-  const classicRoom = await prisma.room.findFirst({ where: { number: "104" } })
-  if (!classicRoom) {
-    // Reset to ensure we exactly match the rooms requested
-    await prisma.reservation.deleteMany()
-    await prisma.room.deleteMany()
-    await prisma.roomType.deleteMany()
-
-    const signature = await prisma.roomType.create({ data: { name: "Signature suite", basePrice: 40000, capacity: 4 } })
-    const executive = await prisma.roomType.create({ data: { name: "Executive suite", basePrice: 35000, capacity: 2 } })
-    const premium = await prisma.roomType.create({ data: { name: "Premium suite", basePrice: 30000, capacity: 2 } })
-    const classic = await prisma.roomType.create({ data: { name: "Classic suite", basePrice: 25000, capacity: 2 } })
-    
-    await prisma.room.createMany({
-      data: [
-        { number: "101", roomTypeId: premium.id },
-        { number: "102", roomTypeId: executive.id },
-        { number: "103", roomTypeId: executive.id },
-        { number: "104", roomTypeId: classic.id },
-        { number: "105", roomTypeId: signature.id },
-        { number: "106", roomTypeId: signature.id },
-      ]
-    })
-  }
-}
+import { AddChargeForm } from "@/components/add-charge-form"
 
 export default async function Dashboard() {
-  await ensureRoomsExist()
-  
   const availableRooms = await getAvailableRooms()
   const occupiedRooms = await getOccupiedRooms()
 
@@ -172,19 +144,27 @@ export default async function Dashboard() {
                           <span className="text-muted-foreground/50 text-xs font-medium w-14">Paid</span>
                           <span className="text-primary font-bold text-sm">₦{reservation.totalAmount.toLocaleString()}</span>
                         </p>
+                        {reservation.extrasAmount > 0 && (
+                          <p className="text-sm flex items-center gap-2">
+                            <span className="text-muted-foreground/50 text-xs font-medium w-14">POS/Extras</span>
+                            <span className="text-amber-500 font-bold text-sm">+₦{reservation.extrasAmount.toLocaleString()}</span>
+                          </p>
+                        )}
                         <p className="text-sm flex items-center gap-2">
                           <span className="text-muted-foreground/50 text-xs font-medium w-14">Due</span>
                           <span className="text-foreground text-xs font-medium">{new Date(reservation.checkOut).toLocaleString('en-NG', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                         </p>
                       </div>
 
-                      {/* Extend Stay */}
-                      <div className="pt-1">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/40 mb-2">Extend Stay</p>
-                        <ExtendStayForm reservationId={reservation.id} basePrice={room.roomType?.basePrice || 0} />
+                      {/* Actions: Extend Stay, Add Charge, Check Out */}
+                      <div className="pt-1 space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/40 mb-1">Room Actions</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <ExtendStayForm reservationId={reservation.id} basePrice={room.roomType?.basePrice || 0} />
+                          <AddChargeForm reservationId={reservation.id} />
+                        </div>
+                        <CheckOutButton roomId={room.id} reservationId={reservation.id} />
                       </div>
-
-                      <CheckOutButton roomId={room.id} reservationId={reservation.id} />
                     </div>
                   )
                 })
