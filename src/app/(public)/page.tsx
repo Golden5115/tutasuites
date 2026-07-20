@@ -23,7 +23,7 @@ export default async function LandingPage() {
               <Star key={i} className="w-4 h-4 text-[#D4AF37] fill-[#D4AF37]" />
             ))}
           </div>
-          <h1 className="font-heading text-5xl md:text-7xl lg:text-8xl font-medium tracking-tight mb-6 leading-[1.1]">
+          <h1 className="font-heading text-4xl md:text-6xl lg:text-8xl font-medium tracking-tight mb-6 leading-[1.1]">
             Uncompromising <br/>
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#D4AF37] via-[#FFF8D6] to-[#D4AF37]">
               Luxury & Elegance
@@ -39,9 +39,9 @@ export default async function LandingPage() {
       </header>
 
       {/* About Section */}
-      <section id="about" className="py-32 px-6 md:px-16 max-w-[1400px] mx-auto">
+      <section id="about" className="py-16 md:py-32 px-6 md:px-16 max-w-[1400px] mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-          <div className="relative aspect-[4/5] w-full rounded-3xl overflow-hidden group">
+          <div className="relative aspect-square md:aspect-[4/5] w-full rounded-3xl overflow-hidden group">
             <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors duration-500 z-10" />
             <Image 
               src="/signature.png" 
@@ -75,7 +75,7 @@ export default async function LandingPage() {
       </section>
 
       {/* Suites Section */}
-      <section id="suites" className="py-32 px-6 md:px-16 max-w-[1600px] mx-auto bg-black">
+      <section id="suites" className="py-16 md:py-32 px-6 md:px-16 max-w-[1600px] mx-auto bg-black">
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-20 gap-8">
           <div className="max-w-2xl">
             <h2 className="text-[#D4AF37] text-sm font-bold uppercase tracking-[0.3em] mb-4">Accommodations</h2>

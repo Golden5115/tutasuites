@@ -1,12 +1,22 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
 import { extendStay } from "@/app/actions"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { CalendarPlus, Loader2 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 
 export function ExtendStayForm({ reservationId, basePrice }: { reservationId: string, basePrice: number }) {
+  const [open, setOpen] = useState(false)
   const [extraDays, setExtraDays] = useState<number | "">("")
   const [isPending, startTransition] = useTransition()
   
@@ -16,40 +26,61 @@ export function ExtendStayForm({ reservationId, basePrice }: { reservationId: st
     startTransition(async () => {
       await extendStay(formData)
       setExtraDays("")
+      setOpen(false)
     })
   }
 
   return (
-    <form action={handleSubmit} className="flex gap-2">
-      <input type="hidden" name="reservationId" value={reservationId} />
-      <Input 
-        type="number" 
-        name="extraDays" 
-        placeholder="Days" 
-        min="1" 
-        required 
-        value={extraDays}
-        onChange={(e) => setExtraDays(e.target.value ? parseInt(e.target.value, 10) : "")}
-        className="w-20 premium-input h-9 text-xs" 
-      />
-      <Input 
-        type="number" 
-        name="additionalAmount" 
-        placeholder="₦ Amount" 
-        min="0" 
-        step="1" 
-        required 
-        value={calculatedAmount || ""}
-        readOnly
-        className="flex-1 premium-input h-9 text-xs bg-muted/50 cursor-not-allowed font-bold text-primary" 
-      />
-      <Button type="submit" disabled={isPending} variant="outline" size="sm" className="h-9 px-3 rounded-xl border-black/[0.06] dark:border-white/[0.06] hover:bg-primary/8 hover:text-primary hover:border-primary/20 transition-all">
-        {isPending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <CalendarPlus className="h-3.5 w-3.5" />
-        )}
-      </Button>
-    </form>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 h-8 px-3 w-full transition-colors">
+        <CalendarPlus className="h-3.5 w-3.5" />
+        Extend Stay
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Extend Stay</DialogTitle>
+          <DialogDescription>
+            Add extra days to this reservation. The room base price is ₦{basePrice.toLocaleString()}/night.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <form action={handleSubmit} className="space-y-4 pt-4">
+          <input type="hidden" name="reservationId" value={reservationId} />
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="extraDays">Extra Days</Label>
+              <Input 
+                id="extraDays"
+                type="number" 
+                name="extraDays" 
+                placeholder="Days" 
+                min="1" 
+                required 
+                value={extraDays}
+                onChange={(e) => setExtraDays(e.target.value ? parseInt(e.target.value, 10) : "")}
+                className="rounded-xl" 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="additionalAmount">Additional Amount (₦)</Label>
+              <Input 
+                id="additionalAmount"
+                type="number" 
+                name="additionalAmount" 
+                required 
+                value={calculatedAmount || ""}
+                readOnly
+                className="rounded-xl bg-muted/50 cursor-not-allowed font-bold text-primary" 
+              />
+            </div>
+          </div>
+
+          <Button type="submit" disabled={isPending || !extraDays} className="w-full rounded-xl shadow-lg shadow-primary/20 mt-4">
+            {isPending ? "Updating..." : "Confirm Extension"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

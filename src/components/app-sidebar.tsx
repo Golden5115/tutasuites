@@ -1,4 +1,4 @@
-import { Calendar, Home, Users, BedDouble, FileText, Settings, Sparkles, LogOut, LineChart } from "lucide-react"
+import { Calendar, Home, Users, BedDouble, FileText, Settings, Sparkles, LogOut, LineChart, Shirt, Wine, Utensils } from "lucide-react"
 import Image from "next/image"
 import { auth } from "@/auth"
 import { logoutAction } from "@/app/actions/auth-actions"
@@ -41,6 +41,21 @@ const items = [
     title: "Housekeeping",
     url: "/dashboard/housekeeping",
     icon: Sparkles,
+  },
+  {
+    title: "Laundry",
+    url: "/dashboard/laundry",
+    icon: Shirt,
+  },
+  {
+    title: "Bar",
+    url: "/dashboard/bar",
+    icon: Wine,
+  },
+  {
+    title: "Restaurant",
+    url: "/dashboard/restaurant",
+    icon: Utensils,
   },
   {
     title: "Finance & Analytics",

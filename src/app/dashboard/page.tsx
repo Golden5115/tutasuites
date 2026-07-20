@@ -1,21 +1,24 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { getAvailableRooms, getOccupiedRooms, checkOutGuest, extendStay } from "@/app/actions"
-import { LogIn, LogOut, BedDouble, User, CalendarPlus, Banknote, DoorOpen } from "lucide-react"
+import { getAvailableRooms, getOccupiedRooms, getCleaningRooms, checkOutGuest, extendStay } from "@/app/actions"
+import { LogIn, LogOut, BedDouble, User, CalendarPlus, Banknote, DoorOpen, Sparkles } from "lucide-react"
 import { prisma } from "@/lib/prisma"
 import { CheckInForm } from "@/components/check-in-form"
 import { ExtendStayForm } from "@/components/extend-stay-form"
 import { CheckOutButton } from "@/components/check-out-button"
 import { AddChargeForm } from "@/components/add-charge-form"
+import { MarkCleanButton } from "@/components/mark-clean-button"
 
 export default async function Dashboard() {
   const availableRooms = await getAvailableRooms()
   const occupiedRooms = await getOccupiedRooms()
+  const cleaningRooms = await getCleaningRooms()
 
-  const totalRooms = 6
+  const totalRooms = await prisma.room.count()
   const occupiedCount = occupiedRooms.length
-  const availableCount = totalRooms - occupiedCount
+  const availableCount = availableRooms.length
+  const cleaningCount = cleaningRooms.length
 
   return (
     <div className="space-y-8">
@@ -30,7 +33,7 @@ export default async function Dashboard() {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-4 animate-slide-up-delay-1">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-slide-up-delay-1">
         <div className="glass-panel p-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
@@ -61,6 +64,17 @@ export default async function Dashboard() {
             <div>
               <p className="text-2xl font-bold text-foreground">{occupiedCount}</p>
               <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">Occupied</p>
+            </div>
+          </div>
+        </div>
+        <div className="glass-panel p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <Sparkles className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-foreground">{cleaningCount}</p>
+              <p className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">Cleaning</p>
             </div>
           </div>
         </div>
@@ -171,6 +185,40 @@ export default async function Dashboard() {
               )}
             </CardContent>
           </Card>
+
+          {/* ROOMS UNDER CLEANING */}
+          {cleaningRooms.length > 0 && (
+            <Card className="glass-panel mt-6 border-amber-500/20 bg-amber-500/5">
+              <CardHeader className="border-b border-amber-500/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                    <Sparkles className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-heading font-semibold tracking-wide text-amber-700 dark:text-amber-500">Under Cleaning</CardTitle>
+                    <CardDescription className="text-xs text-amber-600/70 dark:text-amber-400/70">Rooms pending housekeeping.</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-4">
+                {cleaningRooms.map(room => (
+                  <div key={room.id} className="occupied-card flex flex-col gap-2 border-amber-500/20 bg-white/50 dark:bg-black/20">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="font-bold text-lg text-foreground">Room {room.number}</h3>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground mt-0.5">{room.roomType?.name || 'Standard'}</p>
+                      </div>
+                      <div className="text-xs font-bold bg-amber-500/10 text-amber-600 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                        Cleaning
+                      </div>
+                    </div>
+                    
+                    <MarkCleanButton roomId={room.id} />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

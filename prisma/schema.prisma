@@ -77,6 +77,8 @@ model Reservation {
   paymentStatus    String         @default("UNPAID") // UNPAID, PAID, PARTIALLY_PAID, REFUNDED, FAILED
   payment          Payment?
   extras           BookingExtra[]
+  barOrders        BarOrder[]
+  restaurantOrders RestaurantOrder[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 }
@@ -143,4 +145,109 @@ model Expense {
   date        DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model LaundryCatalogItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     LaundryRequestItem[]
+}
+
+model LaundryRequest {
+  id            String   @id @default(cuid())
+  customerName  String
+  roomNumber    String?
+  status        String   @default("PENDING") // PENDING, WASHING, READY, DELIVERED
+  paymentStatus String   @default("UNPAID") // UNPAID, PAID
+  totalAmount   Float
+  items         LaundryRequestItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model LaundryRequestItem {
+  id              String             @id @default(cuid())
+  requestId       String
+  request         LaundryRequest     @relation(fields: [requestId], references: [id])
+  catalogItemId   String
+  catalogItem     LaundryCatalogItem @relation(fields: [catalogItemId], references: [id])
+  quantity        Int                @default(1)
+  unitPrice       Float
+  totalPrice      Float
+  createdAt       DateTime           @default(now())
+}
+
+model BarItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  price     Float
+  stock     Int      @default(0)
+  category  String   @default("Drinks")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orderItems BarOrderItem[]
+}
+
+model BarOrder {
+  id            String   @id @default(cuid())
+  customerName  String?  
+  isWalkIn      Boolean  @default(true)
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  status        String   @default("COMPLETED") 
+  totalAmount   Float
+  items         BarOrderItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model BarOrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         BarOrder @relation(fields: [orderId], references: [id])
+  itemId        String
+  item          BarItem  @relation(fields: [itemId], references: [id])
+  quantity      Int      @default(1)
+  unitPrice     Float
+  totalPrice    Float
+  createdAt     DateTime @default(now())
+}
+
+model RestaurantItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  price     Float
+  stock     Int      @default(0)
+  category  String   @default("Food")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orderItems RestaurantOrderItem[]
+}
+
+model RestaurantOrder {
+  id            String   @id @default(cuid())
+  customerName  String?  
+  isWalkIn      Boolean  @default(true)
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  status        String   @default("COMPLETED") 
+  totalAmount   Float
+  items         RestaurantOrderItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model RestaurantOrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         RestaurantOrder @relation(fields: [orderId], references: [id])
+  itemId        String
+  item          RestaurantItem  @relation(fields: [itemId], references: [id])
+  quantity      Int      @default(1)
+  unitPrice     Float
+  totalPrice    Float
+  createdAt     DateTime @default(now())
 }

@@ -26,6 +26,14 @@ export async function getOccupiedRooms() {
   })
 }
 
+export async function getCleaningRooms() {
+  return await prisma.room.findMany({
+    where: { status: "CLEANING" },
+    include: { roomType: true },
+    orderBy: { number: 'asc' }
+  })
+}
+
 export async function checkInGuest(formData: FormData) {
   const firstName = formData.get("firstName") as string
   const lastName = formData.get("lastName") as string
@@ -52,9 +60,6 @@ export async function checkInGuest(formData: FormData) {
     }
   })
 
-  // Generate a booking reference
-  const bookingReference = `BKG-${Math.floor(1000 + Math.random() * 9000)}`
-
   // Fetch the rooms to get their actual prices
   const rooms = await prisma.room.findMany({
     where: { id: { in: roomIds } },
@@ -62,20 +67,33 @@ export async function checkInGuest(formData: FormData) {
   })
 
   const checkInDate = new Date()
-  const checkOutDate = new Date(checkInDate)
+  let checkOutDate: Date
   
-  if (checkInDate.getHours() < 6) {
-    // If between 12 AM and 5:59 AM, due time is 12 PM same day
-    checkOutDate.setHours(12, 0, 0, 0)
+  const manualCheckOut = formData.get("checkOutDate") as string
+  if (manualCheckOut) {
+    checkOutDate = new Date(manualCheckOut)
   } else {
-    // Otherwise, due time is 12 PM the next day
-    checkOutDate.setDate(checkOutDate.getDate() + 1)
-    checkOutDate.setHours(12, 0, 0, 0)
+    checkOutDate = new Date(checkInDate)
+    if (checkInDate.getHours() < 6) {
+      checkOutDate.setHours(12, 0, 0, 0)
+    } else {
+      checkOutDate.setDate(checkOutDate.getDate() + 1)
+      checkOutDate.setHours(12, 0, 0, 0)
+    }
   }
+
+  const rawTotalAmount = formData.get("totalAmount") as string
+  const customTotalAmount = rawTotalAmount ? parseFloat(rawTotalAmount) : null
+  const customAmountPerRoom = customTotalAmount !== null && roomIds.length > 0 ? customTotalAmount / roomIds.length : null
 
   for (const roomId of roomIds) {
     const room = rooms.find((r: any) => r.id === roomId)
     const roomPrice = room?.roomType?.basePrice || 0
+
+    const finalRoomPrice = customAmountPerRoom !== null ? customAmountPerRoom : roomPrice
+
+    // Generate a unique booking reference for each room reservation
+    const bookingReference = `BKG-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(10 + Math.random() * 90)}`
 
     const newReservation = await prisma.reservation.create({
       data: {
@@ -87,7 +105,7 @@ export async function checkInGuest(formData: FormData) {
         valuableAssets,
         status: "CHECKED_IN",
         bookingReference,
-        totalAmount: roomPrice,
+        totalAmount: finalRoomPrice,
       }
     })
 

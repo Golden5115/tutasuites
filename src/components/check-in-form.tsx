@@ -12,6 +12,7 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([])
   const [isPending, startTransition] = useTransition()
   const formRef = useRef<HTMLFormElement>(null)
+  const [manualAmount, setManualAmount] = useState<number | "">("")
 
   const calculatedTotal = selectedRoomIds.reduce((total, id) => {
     const room = availableRooms.find(r => r.id === id)
@@ -20,6 +21,8 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
     }
     return total
   }, 0)
+
+  const displayAmount = manualAmount !== "" ? manualAmount : calculatedTotal
 
   const toggleRoom = (roomId: string) => {
     setSelectedRoomIds(prev => 
@@ -123,7 +126,23 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
         {/* Additional Details */}
         <div className="space-y-3 pt-2">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/60">Booking Details</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="checkOutDate" className="premium-label">Check-Out Date & Time *</Label>
+              <Input id="checkOutDate" name="checkOutDate" type="datetime-local" required className="premium-input" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="totalAmount" className="premium-label">Total Price (₦) *</Label>
+              <Input 
+                id="totalAmount" 
+                name="totalAmount" 
+                type="number" 
+                value={displayAmount}
+                onChange={(e) => setManualAmount(e.target.value ? parseFloat(e.target.value) : "")}
+                required
+                className="premium-input font-bold text-primary" 
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="numberOfGuests" className="premium-label">Guests</Label>
               <Input id="numberOfGuests" name="numberOfGuests" type="number" min="1" defaultValue="1" required className="premium-input" />
@@ -131,17 +150,6 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
             <div className="space-y-1.5">
               <Label htmlFor="valuableAssets" className="premium-label">Valuable Assets</Label>
               <Input id="valuableAssets" name="valuableAssets" placeholder="Laptop, Jewelry..." className="premium-input" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="totalAmount" className="premium-label">Total Price (₦)</Label>
-              <Input 
-                id="totalAmount" 
-                name="totalAmount" 
-                type="number" 
-                value={calculatedTotal}
-                readOnly
-                className="premium-input bg-primary/5 dark:bg-primary/8 font-bold text-primary border-primary/15 cursor-default" 
-              />
             </div>
           </div>
         </div>
