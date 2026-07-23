@@ -18,6 +18,7 @@ interface BookingFormProps {
     name: string
     slug: string
     basePrice: number
+    hourlyPrice?: number | null
     capacity: number
     images: string[]
   }
@@ -30,6 +31,7 @@ interface BookingFormProps {
   initialCheckOut?: string
   initialAdults?: number
   initialChildren?: number
+  isStaff?: boolean
 }
 
 type Step = "dates" | "guest" | "extras" | "review"
@@ -41,6 +43,7 @@ export function BookingForm({
   initialCheckOut,
   initialAdults,
   initialChildren,
+  isStaff = false,
 }: BookingFormProps) {
   const router = useRouter()
   const [step, setStep] = useState<Step>("dates")
@@ -49,9 +52,13 @@ export function BookingForm({
 
   const today = new Date().toISOString().split("T")[0]
 
+  // Booking Type
+  const [bookingType, setBookingType] = useState<"DAILY" | "HOURLY">("DAILY")
+
   // Dates
   const [checkIn, setCheckIn] = useState(initialCheckIn || "")
   const [checkOut, setCheckOut] = useState(initialCheckOut || "")
+  const [checkInTime, setCheckInTime] = useState("12:00")
   const [adults, setAdults] = useState(initialAdults || 2)
   const [children, setChildren] = useState(initialChildren || 0)
 
@@ -67,10 +74,12 @@ export function BookingForm({
   const [selectedExtras, setSelectedExtras] = useState<Record<string, number>>({})
 
   // Calculations
-  const nights = checkIn && checkOut
-    ? Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24))
-    : 0
-  const roomPrice = roomType.basePrice * nights
+  const nights = checkIn && checkOut && bookingType === "DAILY"
+    ? Math.max(1, Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24)))
+    : 1
+  const roomPrice = bookingType === "HOURLY" 
+    ? (roomType.hourlyPrice || roomType.basePrice) 
+    : roomType.basePrice * nights
   const extrasTotal = Object.entries(selectedExtras).reduce((sum, [name, qty]) => {
     const extra = AVAILABLE_EXTRAS.find((e) => e.name === name)
     return sum + (extra ? extra.price * qty : 0)
@@ -112,10 +121,20 @@ export function BookingForm({
         quantity,
       }))
 
+      const checkInDateTime = bookingType === "HOURLY" && checkIn 
+        ? `${checkIn}T${checkInTime}:00` 
+        : checkIn
+
+      const checkOutDateTime = bookingType === "HOURLY" && checkIn 
+        ? new Date(new Date(`${checkIn}T${checkInTime}:00`).getTime() + 60 * 60 * 1000).toISOString()
+        : checkOut
+
       const result = await createBooking({
         roomTypeSlug: roomType.slug,
-        checkIn,
-        checkOut,
+        checkIn: checkInDateTime,
+        checkOut: checkOutDateTime,
+        bookingType,
+        hours: bookingType === "HOURLY" ? 1 : undefined,
         adults,
         children,
         firstName,
@@ -168,17 +187,50 @@ export function BookingForm({
                 <Calendar className="w-5 h-5 text-[#D4AF37]" />
                 <h2 className="font-heading text-2xl">Select Your Dates</h2>
               </div>
+
+              {/* Booking Type Toggle - Only visible to staff */}
+              {isStaff && (
+                <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl w-max">
+                  <button
+                    type="button"
+                    onClick={() => setBookingType("DAILY")}
+                    className={`px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      bookingType === "DAILY" ? "bg-[#D4AF37] text-black" : "text-white/70 hover:text-white"
+                    }`}
+                  >
+                    Full Day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBookingType("HOURLY")}
+                    className={`px-6 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      bookingType === "HOURLY" ? "bg-[#D4AF37] text-black" : "text-white/70 hover:text-white"
+                    }`}
+                  >
+                    Short Time (1 Hour)
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-bold uppercase tracking-wider text-white/50">Check-in Date</label>
                   <input type="date" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} min={today} required
                     className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors [color-scheme:dark]" />
                 </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-white/50">Check-out Date</label>
-                  <input type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} min={checkIn || today} required
-                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors [color-scheme:dark]" />
-                </div>
+                {bookingType === "DAILY" ? (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-white/50">Check-out Date</label>
+                    <input type="date" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} min={checkIn || today} required
+                      className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors [color-scheme:dark]" />
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-white/50">Check-in Time</label>
+                    <input type="time" value={checkInTime} onChange={(e) => setCheckInTime(e.target.value)} required
+                      className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors [color-scheme:dark]" />
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-6">
                 <div className="flex flex-col gap-2">
@@ -197,7 +249,7 @@ export function BookingForm({
                 </div>
               </div>
               <div className="flex justify-end pt-4">
-                <button onClick={nextStep} disabled={!checkIn || !checkOut || nights < 1}
+                <button onClick={nextStep} disabled={!checkIn || (bookingType === "DAILY" && (!checkOut || nights < 1))}
                   className="px-8 py-3 bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-[#F3E5AB] transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2">
                   Continue <ChevronRight className="w-4 h-4" />
                 </button>

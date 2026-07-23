@@ -62,9 +62,10 @@ export function PublicFooter() {
       
       <div className="max-w-[1600px] mx-auto pt-8 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 text-white/40 text-xs">
         <p>&copy; {new Date().getFullYear()} Tuta Suites. All rights reserved.</p>
-        <div className="flex gap-6">
-          <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-          <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+        <div className="flex flex-wrap gap-4 md:gap-6 justify-center md:justify-end mt-4 md:mt-0">
+          <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-white transition-colors">Terms and Conditions</Link>
+          <Link href="/refund-policy" className="hover:text-white transition-colors">Refund/Cancellation Policy</Link>
         </div>
       </div>
     </footer>

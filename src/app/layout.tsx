@@ -3,6 +3,7 @@ import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/components/theme-provider"
+import { CookieBanner } from "@/components/cookie-banner"
 
 const inter = Inter({
   variable: "--font-sans",
@@ -45,6 +46,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <TooltipProvider>
             {children}
+            <CookieBanner />
           </TooltipProvider>
         </ThemeProvider>
       </body>

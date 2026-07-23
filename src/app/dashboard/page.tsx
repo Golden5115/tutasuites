@@ -174,7 +174,12 @@ export default async function Dashboard() {
                       <div className="pt-1 space-y-2">
                         <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/40 mb-1">Room Actions</p>
                         <div className="grid grid-cols-2 gap-2">
-                          <ExtendStayForm reservationId={reservation.id} basePrice={room.roomType?.basePrice || 0} />
+                          <ExtendStayForm 
+                            reservationId={reservation.id} 
+                            basePrice={room.roomType?.basePrice || 0}
+                            hourlyPrice={room.roomType?.hourlyPrice}
+                            bookingType={reservation.bookingType} 
+                          />
                           <AddChargeForm reservationId={reservation.id} />
                         </div>
                         <CheckOutButton roomId={room.id} reservationId={reservation.id} />

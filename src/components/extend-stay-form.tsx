@@ -15,17 +15,30 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 
-export function ExtendStayForm({ reservationId, basePrice }: { reservationId: string, basePrice: number }) {
+export function ExtendStayForm({ 
+  reservationId, 
+  basePrice,
+  hourlyPrice,
+  bookingType 
+}: { 
+  reservationId: string, 
+  basePrice: number,
+  hourlyPrice?: number | null,
+  bookingType?: string 
+}) {
   const [open, setOpen] = useState(false)
-  const [extraDays, setExtraDays] = useState<number | "">("")
+  const [extraCount, setExtraCount] = useState<number | "">("")
   const [isPending, startTransition] = useTransition()
   
-  const calculatedAmount = typeof extraDays === 'number' ? extraDays * basePrice : 0
+  const isHourly = bookingType === "HOURLY"
+  const priceUnit = isHourly ? (hourlyPrice || basePrice) : basePrice
+  const unitLabel = isHourly ? "Hours" : "Days"
+  const calculatedAmount = typeof extraCount === 'number' ? extraCount * priceUnit : 0
 
   const handleSubmit = (formData: FormData) => {
     startTransition(async () => {
       await extendStay(formData)
-      setExtraDays("")
+      setExtraCount("")
       setOpen(false)
     })
   }
@@ -40,7 +53,7 @@ export function ExtendStayForm({ reservationId, basePrice }: { reservationId: st
         <DialogHeader>
           <DialogTitle>Extend Stay</DialogTitle>
           <DialogDescription>
-            Add extra days to this reservation. The room base price is ₦{basePrice.toLocaleString()}/night.
+            Add extra {unitLabel.toLowerCase()} to this reservation. The room rate is ₦{priceUnit.toLocaleString()}/{isHourly ? "hour" : "night"}.
           </DialogDescription>
         </DialogHeader>
         
@@ -49,16 +62,16 @@ export function ExtendStayForm({ reservationId, basePrice }: { reservationId: st
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="extraDays">Extra Days</Label>
+              <Label htmlFor="extraCount">Extra {unitLabel}</Label>
               <Input 
-                id="extraDays"
+                id="extraCount"
                 type="number" 
-                name="extraDays" 
-                placeholder="Days" 
+                name="extraCount" 
+                placeholder={unitLabel} 
                 min="1" 
                 required 
-                value={extraDays}
-                onChange={(e) => setExtraDays(e.target.value ? parseInt(e.target.value, 10) : "")}
+                value={extraCount}
+                onChange={(e) => setExtraCount(e.target.value ? parseInt(e.target.value, 10) : "")}
                 className="rounded-xl" 
               />
             </div>
@@ -76,7 +89,7 @@ export function ExtendStayForm({ reservationId, basePrice }: { reservationId: st
             </div>
           </div>
 
-          <Button type="submit" disabled={isPending || !extraDays} className="w-full rounded-xl shadow-lg shadow-primary/20 mt-4">
+          <Button type="submit" disabled={isPending || !extraCount} className="w-full rounded-xl shadow-lg shadow-primary/20 mt-4">
             {isPending ? "Updating..." : "Confirm Extension"}
           </Button>
         </form>

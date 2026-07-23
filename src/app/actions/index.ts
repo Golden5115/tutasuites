@@ -127,10 +127,10 @@ export async function checkInGuest(formData: FormData) {
 
 export async function extendStay(formData: FormData) {
   const reservationId = formData.get("reservationId") as string
-  const extraDays = parseInt(formData.get("extraDays") as string, 10) || 0
+  const extraCount = parseInt(formData.get("extraCount") as string, 10) || 0
   const additionalAmount = parseFloat(formData.get("additionalAmount") as string) || 0
 
-  if (!reservationId) return { success: false }
+  if (!reservationId || extraCount <= 0) return { success: false }
 
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId }
@@ -139,7 +139,15 @@ export async function extendStay(formData: FormData) {
   if (!reservation) return { success: false }
 
   const currentCheckOut = new Date(reservation.checkOut)
-  const newCheckOut = new Date(currentCheckOut.getTime() + extraDays * 24 * 60 * 60 * 1000)
+  let newCheckOut: Date;
+
+  if (reservation.bookingType === "HOURLY") {
+    // Add hours
+    newCheckOut = new Date(currentCheckOut.getTime() + extraCount * 60 * 60 * 1000)
+  } else {
+    // Add days
+    newCheckOut = new Date(currentCheckOut.getTime() + extraCount * 24 * 60 * 60 * 1000)
+  }
 
   await prisma.reservation.update({
     where: { id: reservationId },

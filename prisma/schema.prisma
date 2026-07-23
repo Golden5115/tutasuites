@@ -15,6 +15,7 @@ model RoomType {
   slug         String   @unique // URL-friendly name e.g. "deluxe-suite"
   description  String?
   basePrice    Float
+  hourlyPrice  Float?   // Fixed price for 1-hour booking
   capacity     Int
   bedType      String?  // "King Bed", "Twin Bed"
   size         String?  // "45 sqm"
@@ -66,6 +67,7 @@ model Reservation {
   adults           Int            @default(1)
   children         Int            @default(0)
   nights           Int            @default(1)
+  bookingType      String         @default("DAILY") // DAILY or HOURLY
   valuableAssets   String?  
   status           String         @default("CONFIRMED") // PENDING, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED, NO_SHOW
   bookingReference String?        @unique

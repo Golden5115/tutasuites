@@ -84,12 +84,24 @@ export async function createBooking(data: {
   country: string
   specialRequests: string
   extras: { name: string; price: number; quantity: number }[]
+  bookingType?: "DAILY" | "HOURLY"
+  hours?: number
 }) {
+  const isHourly = data.bookingType === "HOURLY"
+  
   const checkInDate = new Date(data.checkIn)
-  const checkOutDate = new Date(data.checkOut)
-  const nights = Math.ceil(
-    (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24)
-  )
+  let checkOutDate = new Date(data.checkOut)
+  let nights = 0
+  let hoursCount = data.hours || 1
+
+  if (isHourly) {
+    // If short time (1 hour), checkout is checkIn + hours
+    checkOutDate = new Date(checkInDate.getTime() + hoursCount * 60 * 60 * 1000)
+  } else {
+    nights = Math.ceil(
+      (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24)
+    )
+  }
 
   // Get room type
   const roomType = await prisma.roomType.findUnique({
@@ -122,7 +134,13 @@ export async function createBooking(data: {
   const settings = await getSiteSettings()
 
   // Calculate pricing
-  const roomPrice = roomType.basePrice * nights
+  let roomPrice = 0
+  if (isHourly) {
+    roomPrice = (roomType.hourlyPrice || roomType.basePrice) * hoursCount
+  } else {
+    roomPrice = roomType.basePrice * Math.max(1, nights)
+  }
+
   const extrasAmount = data.extras.reduce(
     (sum, e) => sum + e.price * e.quantity,
     0
@@ -159,10 +177,11 @@ export async function createBooking(data: {
       roomId: availableRoom.id,
       checkIn: checkInDate,
       checkOut: checkOutDate,
+      numberOfGuests: data.adults + data.children,
       adults: data.adults,
       children: data.children,
-      numberOfGuests: data.adults + data.children,
-      nights,
+      nights: nights,
+      bookingType: data.bookingType || "DAILY",
       status: "PENDING",
       bookingReference,
       roomPrice,

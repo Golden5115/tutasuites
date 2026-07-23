@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { getSiteSettings } from "@/app/actions/booking-actions"
 import { BookingForm } from "@/components/booking-form"
+import { auth } from "@/auth"
 
 interface Props {
   params: Promise<{ slug: string }>
@@ -21,6 +22,10 @@ export default async function BookingPage({ params, searchParams }: Props) {
   if (!roomType) notFound()
 
   const settings = await getSiteSettings()
+  
+  const session = await auth()
+  const user = session?.user as any
+  const isStaff = user?.role === "ADMIN" || user?.role === "FRONT_DESK"
 
   return (
     <>
@@ -50,6 +55,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
           initialCheckOut={sp.checkOut}
           initialAdults={sp.adults ? Number(sp.adults) : undefined}
           initialChildren={sp.children ? Number(sp.children) : undefined}
+          isStaff={isStaff}
         />
       </section>
     </>
