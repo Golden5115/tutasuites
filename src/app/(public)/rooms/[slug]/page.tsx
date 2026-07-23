@@ -39,7 +39,7 @@ export default async function RoomDetailPage({ params }: Props) {
       <section className="relative pt-24 pb-0">
         <div className="relative h-[60vh] w-full">
           <Image
-            src={roomType.images[0] || "/signature.png"}
+            src={roomType.images[0] || "/dsc_0990.jpg"}
             alt={roomType.name}
             fill
             className="object-cover"
@@ -180,7 +180,7 @@ export default async function RoomDetailPage({ params }: Props) {
             {similarRooms.map((sr) => (
               <Link key={sr.id} href={`/rooms/${sr.slug}`} className="group rounded-2xl overflow-hidden bg-white/[0.02] border border-white/[0.05] flex">
                 <div className="relative w-48 h-48 shrink-0">
-                  <Image src={sr.images[0] || "/signature.png"} alt={sr.name} fill className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <Image src={sr.images[0] || "/dsc_0990.jpg"} alt={sr.name} fill className="object-cover group-hover:scale-105 transition-transform duration-500" />
                 </div>
                 <div className="p-6 flex flex-col justify-center">
                   <h3 className="font-heading text-xl mb-1">{sr.name}</h3>

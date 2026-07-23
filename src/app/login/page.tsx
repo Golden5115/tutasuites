@@ -8,7 +8,7 @@ export default function LoginPage() {
       <div className="hidden lg:flex w-1/2 relative flex-col justify-between p-12">
         <div className="absolute inset-0 z-0">
           <Image
-            src="/signature.png"
+            src="/dsc_0990.jpg"
             alt="Luxury Interior"
             fill
             className="object-cover opacity-60"
@@ -37,7 +37,7 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 md:p-12 relative">
         <div className="absolute inset-0 z-0 lg:hidden">
           <Image
-            src="/signature.png"
+            src="/dsc_0990.jpg"
             alt="Luxury Interior"
             fill
             className="object-cover opacity-20"

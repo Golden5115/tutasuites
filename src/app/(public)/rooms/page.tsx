@@ -49,7 +49,7 @@ export default async function RoomsPage({ searchParams }: Props) {
       {/* Hero Banner */}
       <section className="relative pt-40 pb-20 px-6 md:px-16">
         <div className="absolute inset-0 z-0">
-          <Image src="/hero.png" alt="Rooms" fill className="object-cover opacity-30" />
+          <Image src="/dsc_0988.jpg" alt="Rooms" fill className="object-cover opacity-30" />
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/80 to-black" />
         </div>
         <div className="relative z-10 max-w-[1200px] mx-auto text-center">
@@ -82,7 +82,7 @@ export default async function RoomsPage({ searchParams }: Props) {
                 <div className="relative aspect-[4/3] overflow-hidden">
                   <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors duration-500 z-10" />
                   <Image
-                    src={rt.images?.[0] || "/signature.png"}
+                    src={rt.images?.[0] || "/dsc_0990.jpg"}
                     alt={rt.name}
                     fill
                     className="object-cover transition-transform duration-700 group-hover:scale-105"

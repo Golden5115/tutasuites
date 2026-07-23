@@ -399,7 +399,7 @@ export function BookingForm({
       <div className="lg:col-span-1 hidden lg:block">
         <div className="sticky top-32 bg-white/[0.03] border border-white/[0.06] rounded-3xl p-6 space-y-4">
           <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden mb-4">
-            <img src={roomType.images[0] || "/signature.png"} alt={roomType.name} className="w-full h-full object-cover" />
+            <img src={roomType.images[0] || "/dsc_0990.jpg"} alt={roomType.name} className="w-full h-full object-cover" />
           </div>
           <h3 className="font-heading text-xl">{roomType.name}</h3>
           <div className="h-px bg-white/10" />

@@ -26,11 +26,11 @@ export function SearchForm() {
   return (
     <form
       onSubmit={handleSearch}
-      className="w-full max-w-4xl bg-black/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-6 md:p-8"
+      className="w-full max-w-4xl bg-black/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 md:p-8"
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-6">
         {/* Check-in */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5 md:gap-2 col-span-1">
           <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 flex items-center gap-1.5">
             <Calendar className="w-3 h-3" /> Check-in
           </label>
@@ -45,7 +45,7 @@ export function SearchForm() {
         </div>
 
         {/* Check-out */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5 md:gap-2 col-span-1">
           <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 flex items-center gap-1.5">
             <Calendar className="w-3 h-3" /> Check-out
           </label>
@@ -60,7 +60,7 @@ export function SearchForm() {
         </div>
 
         {/* Guests */}
-        <div className="flex flex-col gap-2 md:col-span-2 lg:col-span-2">
+        <div className="flex flex-col gap-1.5 md:gap-2 col-span-2 lg:col-span-2">
           <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/50 flex items-center gap-1.5">
             <Users className="w-3 h-3" /> Guests
           </label>
@@ -87,7 +87,7 @@ export function SearchForm() {
         </div>
 
         {/* Search Button */}
-        <div className="flex flex-col justify-end md:col-span-2 lg:col-span-1">
+        <div className="flex flex-col justify-end col-span-2 lg:col-span-1 mt-1 md:mt-0">
           <button
             type="submit"
             className="bg-[#D4AF37] text-black font-bold uppercase tracking-[0.15em] text-sm rounded-xl px-6 py-3.5 hover:bg-[#F3E5AB] transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
