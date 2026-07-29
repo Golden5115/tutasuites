@@ -42,7 +42,7 @@ export function CreateStaffForm() {
           <div className="grid gap-2">
             <Label>Accessible Modules</Label>
             <div className="flex flex-col gap-2 rounded-md border p-4">
-              {['RESERVATIONS', 'GUESTS', 'ROOMS', 'SETTINGS', 'STAFF'].map(mod => (
+              {['RESERVATIONS', 'ROOMS', 'CALENDAR', 'HOUSEKEEPING', 'LAUNDRY', 'BAR', 'RESTAURANT', 'FINANCE', 'GUESTS', 'SETTINGS', 'STAFF'].map(mod => (
                 <label key={mod} className="flex items-center gap-2 text-sm">
                   <input type="checkbox" name="modules" value={mod} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
                   {mod.charAt(0) + mod.slice(1).toLowerCase()}

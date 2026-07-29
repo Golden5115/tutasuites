@@ -67,13 +67,27 @@ const items = [
 export async function AppSidebar() {
   const session = await auth()
 
-  const allItems = [...items]
-  if ((session?.user as any)?.role === "ADMIN") {
+  const userModules = (session?.user as any)?.modules || []
+  const isAdmin = (session?.user as any)?.role === "ADMIN"
+
+  const allItems = items.filter(item => {
+    if (isAdmin) return true;
+    if (item.title === "Dashboard") return true; // Everyone sees Dashboard
+    
+    // Check if the item's title maps to a module the user has
+    const moduleName = item.title.split(' ')[0].toUpperCase() // e.g. "Reservations" -> "RESERVATIONS"
+    return userModules.includes(moduleName)
+  })
+
+  if (isAdmin || userModules.includes("STAFF")) {
     allItems.push({
       title: "Staff",
       url: "/dashboard/staff",
       icon: Users,
     })
+  }
+  
+  if (isAdmin || userModules.includes("SETTINGS")) {
     allItems.push({
       title: "Settings",
       url: "/dashboard/settings",
