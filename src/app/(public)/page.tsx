@@ -71,8 +71,11 @@ export default async function LandingPage() {
               <h3 className="font-heading text-4xl md:text-5xl lg:text-6xl tracking-tight mb-8 leading-[1.1]">
                 Where comfort meets class, and every stay feels like home.
               </h3>
-              <p className="text-white/70 text-lg md:text-xl font-light leading-relaxed mb-10">
+              <p className="text-white/70 text-lg md:text-xl font-light leading-relaxed mb-6">
                 Tuta Suites is a premier hospitality destination designed for discerning guests who value luxury, privacy, and exceptional service. From elegantly furnished suites to world-class amenities, every detail has been thoughtfully curated to deliver an experience that goes beyond accommodation — it's a lifestyle. Whether you're here for business, leisure, or a special occasion, Tuta Suites is your sanctuary of sophistication.
+              </p>
+              <p className="text-white/70 text-lg md:text-xl font-light leading-relaxed mb-10">
+                Beyond our luxury suites, we also feature a top-tier restaurant and a vibrant mini lounge offering a curated selection of exquisite drinks and delicious meals. Our restaurant and bar are open not only to our guests but also to the general public. Whether you wish to dine in or have your meal delivered directly to you, we are here to serve your every need.
               </p>
               
               <div className="grid grid-cols-2 gap-8 border-t border-white/10 pt-10">

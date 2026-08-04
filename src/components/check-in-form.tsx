@@ -13,6 +13,7 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
   const [isPending, startTransition] = useTransition()
   const formRef = useRef<HTMLFormElement>(null)
   const [manualAmount, setManualAmount] = useState<number | "">("")
+  const [numberOfGuests, setNumberOfGuests] = useState<number>(1)
 
   const calculatedTotal = selectedRoomIds.reduce((total, id) => {
     const room = availableRooms.find(r => r.id === id)
@@ -22,7 +23,12 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
     return total
   }, 0)
 
-  const displayAmount = manualAmount !== "" ? manualAmount : calculatedTotal
+  const allowedGuests = selectedRoomIds.length * 2
+  const extraGuests = Math.max(0, numberOfGuests - allowedGuests)
+  const extraGuestCharge = selectedRoomIds.length > 0 ? extraGuests * 5000 : 0
+  
+  const finalCalculatedTotal = calculatedTotal + extraGuestCharge
+  const displayAmount = manualAmount !== "" ? manualAmount : finalCalculatedTotal
 
   const toggleRoom = (roomId: string) => {
     setSelectedRoomIds(prev => 
@@ -145,7 +151,16 @@ export function CheckInForm({ availableRooms }: { availableRooms: any[] }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="numberOfGuests" className="premium-label">Guests</Label>
-              <Input id="numberOfGuests" name="numberOfGuests" type="number" min="1" defaultValue="1" required className="premium-input" />
+              <Input 
+                id="numberOfGuests" 
+                name="numberOfGuests" 
+                type="number" 
+                min="1" 
+                value={numberOfGuests}
+                onChange={(e) => setNumberOfGuests(parseInt(e.target.value) || 1)}
+                required 
+                className="premium-input" 
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="valuableAssets" className="premium-label">Valuable Assets</Label>

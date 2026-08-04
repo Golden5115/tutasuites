@@ -141,6 +141,18 @@ export async function createBooking(data: {
     roomPrice = roomType.basePrice * Math.max(1, nights)
   }
 
+  const totalGuests = data.adults + data.children
+  const extraGuestsCount = Math.max(0, totalGuests - 2)
+  const extraGuestFee = 5000
+  // Extra guest charge per night (for daily) or flat (for hourly)
+  if (extraGuestsCount > 0) {
+    data.extras.push({
+      name: `Extra Guest Charge (${extraGuestsCount} additional persons)`,
+      price: extraGuestFee * (isHourly ? 1 : Math.max(1, nights)),
+      quantity: extraGuestsCount
+    })
+  }
+
   const extrasAmount = data.extras.reduce(
     (sum, e) => sum + e.price * e.quantity,
     0
