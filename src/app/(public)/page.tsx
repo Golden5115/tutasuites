@@ -72,7 +72,7 @@ export default async function LandingPage() {
                 Where comfort meets class, and every stay feels like home.
               </h3>
               <p className="text-white/70 text-lg md:text-xl font-light leading-relaxed mb-6">
-                Tuta Suites is a premier hospitality destination designed for discerning guests who value luxury, privacy, and exceptional service. From elegantly furnished suites to world-class amenities, every detail has been thoughtfully curated to deliver an experience that goes beyond accommodation — it's a lifestyle. Whether you're here for business, leisure, or a special occasion, Tuta Suites is your sanctuary of sophistication.
+                Widely recognized among the best hotels in Mowe, Tuta Suites is a premier hospitality destination designed for discerning guests who value luxury, privacy, and exceptional service. If you are looking for the best hotel in Mowe Ogun State for couples, or simply the finest accommodation in the area, every detail here has been thoughtfully curated to deliver an experience that goes beyond a standard stay — it's a lifestyle. Whether you're here for business, leisure, or a romantic getaway, Tuta Suites is your sanctuary of sophistication and undeniably the best hotel in Mowe Ogun State.
               </p>
               <p className="text-white/70 text-lg md:text-xl font-light leading-relaxed mb-10">
                 Beyond our luxury suites, we also feature a top-tier restaurant and a vibrant mini lounge offering a curated selection of exquisite drinks and delicious meals. Our restaurant and bar are open not only to our guests but also to the general public. Whether you wish to dine in or have your meal delivered directly to you, we are here to serve your every need.

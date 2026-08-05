@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     template: "%s | Tuta Suites"
   },
   description: "Experience luxury and comfort at Tuta Suites. Premium hotel in Assurance CDA Estate, Orimerunmu, Mowe-Ibafo featuring 24/7 security, high-speed WiFi, fine dining, and excellent hospitality.",
-  keywords: ["Tuta Suites", "Hotel in Mowe", "Hotel in Ibafo", "Luxury Hotel Ogun State", "Accommodation in Orimerunmu", "Tuta Suite", "Premium Suites"],
+  keywords: ["Tuta Suites", "Hotel in Mowe", "hotels in mowe", "Best hotels in mowe", "Best hotel in Mowe Ogun State", "Best hotel in mowe ogun state for couples", "Hotel in Ibafo", "Luxury Hotel Ogun State", "Accommodation in Orimerunmu", "Tuta Suite", "Premium Suites"],
   authors: [{ name: "Tuta Suites" }],
   creator: "Tuta Suites",
   openGraph: {
