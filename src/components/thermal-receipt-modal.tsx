@@ -2,6 +2,7 @@
 
 import { Printer, X, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { printReceipt, buildReceiptHtml } from "@/lib/print-receipt"
 
 export interface ReceiptItem {
   name: string
@@ -32,16 +33,30 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
   if (!isOpen || !data) return null
 
   const handlePrint = () => {
-    window.print()
+    const html = buildReceiptHtml({
+      title: data.title,
+      orderNumber: data.orderNumber,
+      date: data.date,
+      customerName: data.customerName,
+      roomNumber: data.roomNumber,
+      orderType: data.orderType,
+      items: data.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        totalPrice: item.totalPrice,
+      })),
+      totalAmount: data.totalAmount,
+      paymentStatus: data.paymentStatus,
+    })
+    printReceipt(html)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      {/* Container - hide rest of UI when printing */}
-      <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-6 shadow-2xl overflow-hidden print:bg-white print:text-black print:p-0 print:border-none print:shadow-none print:w-full print:max-w-none">
+      <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-6 shadow-2xl overflow-hidden">
         
-        {/* Screen Header Controls (Hidden on Print) */}
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10 print:hidden">
+        {/* Screen Header Controls */}
+        <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10">
           <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
             <CheckCircle2 className="w-5 h-5" />
             Order Completed
@@ -54,8 +69,8 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
           </button>
         </div>
 
-        {/* 80mm RECEIPT PAPER DISPLAY */}
-        <div id="thermal-receipt" className="print-thermal bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl print:shadow-none print:p-2 print:rounded-none">
+        {/* 80mm RECEIPT PREVIEW */}
+        <div className="bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl">
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-black/30">
             <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>
@@ -139,8 +154,8 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
           </div>
         </div>
 
-        {/* Screen Actions (Hidden on Print) */}
-        <div className="flex gap-3 mt-6 print:hidden">
+        {/* Action Buttons */}
+        <div className="flex gap-3 mt-6">
           <Button 
             onClick={handlePrint}
             className="flex-1 bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-bold uppercase tracking-wider text-xs gap-2 py-5"

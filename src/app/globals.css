@@ -257,6 +257,8 @@
     color: black !important;
     margin: 0 !important;
     padding: 0 !important;
+    height: auto !important;
+    min-height: 100% !important;
   }
 
   /* Hide direct children of body to suppress background page content */
@@ -272,11 +274,12 @@
   }
 
   .print-thermal {
-    position: fixed !important;
+    position: absolute !important;
     left: 0 !important;
     top: 0 !important;
     width: 80mm !important;
     max-width: 80mm !important;
+    height: auto !important;
     margin: 0 !important;
     padding: 4mm !important;
     background: white !important;
