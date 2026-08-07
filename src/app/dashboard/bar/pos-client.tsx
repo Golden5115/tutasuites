@@ -8,12 +8,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Minus, Plus, ShoppingCart, Trash2, Loader2, Wine, User, BedDouble } from "lucide-react"
 
+import { ThermalReceiptModal, ReceiptData } from "@/components/thermal-receipt-modal"
+
 export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupiedRooms: any[] }) {
   const [cart, setCart] = useState<{ item: any, quantity: number }[]>([])
   const [search, setSearch] = useState("")
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
   
   // Checkout states
   const [orderType, setOrderType] = useState<"WALKIN" | "ROOM">("WALKIN")
@@ -74,6 +77,24 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
       if (res.error) {
         setError(res.error)
       } else {
+        const roomObj = occupiedRooms.find(r => r.id === selectedRoomId)
+        setReceiptData({
+          title: "MINI LOUNGE BAR",
+          orderNumber: res.orderId ? res.orderId.slice(-6).toUpperCase() : String(Date.now()).slice(-6),
+          date: new Date().toLocaleString(),
+          orderType: orderType === "WALKIN" ? "Walk-in" : "Room Charge",
+          customerName: orderType === "WALKIN" ? (customerName || "Walk-in Guest") : roomObj?.reservations?.[0]?.guest?.firstName + " " + (roomObj?.reservations?.[0]?.guest?.lastName || ""),
+          roomNumber: orderType === "ROOM" ? roomObj?.number : undefined,
+          items: cart.map(c => ({
+            name: c.item.name,
+            quantity: c.quantity,
+            unitPrice: c.item.price,
+            totalPrice: c.item.price * c.quantity
+          })),
+          totalAmount,
+          paymentStatus: orderType === "WALKIN" ? "PAID" : "CHARGED TO ROOM"
+        })
+
         setCart([])
         setCustomerName("")
         setSelectedRoomId("")
@@ -98,82 +119,93 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
             />
           </div>
         </CardHeader>
-        <CardContent className="p-4 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {filteredCatalog.map(item => (
-            <button
-              key={item.id}
-              onClick={() => addToCart(item)}
-              disabled={item.stock <= 0}
-              className="flex flex-col text-left p-3 rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-white/50 dark:bg-white/[0.02] hover:border-primary/20 hover:bg-primary/[0.03] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative"
-            >
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">{item.category}</span>
-              <span className="font-bold text-sm text-foreground line-clamp-2 leading-tight">{item.name}</span>
-              <span className="text-primary font-bold mt-2">₦{item.price.toLocaleString()}</span>
-              
-              <div className="absolute top-2 right-2 flex items-center justify-center">
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${item.stock > 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-600'}`}>
-                  {item.stock} left
-                </span>
+        <CardContent className="p-4 overflow-y-auto flex-1 custom-scrollbar">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {filteredCatalog.map(item => (
+              <div 
+                key={item.id}
+                onClick={() => addToCart(item)}
+                className="p-3 rounded-xl border border-black/[0.05] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.02] hover:bg-primary/10 hover:border-primary/30 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <p className="font-semibold text-sm line-clamp-1">{item.name}</p>
+                  <p className="text-xs text-muted-foreground">{item.category}</p>
+                </div>
+                <div className="flex items-center justify-between mt-3">
+                  <p className="font-bold text-sm text-primary">₦{item.price.toLocaleString()}</p>
+                  <span className="text-[10px] text-muted-foreground">Stock: {item.stock}</span>
+                </div>
               </div>
-            </button>
-          ))}
+            ))}
+          </div>
         </CardContent>
       </Card>
 
-      {/* CART */}
-      <Card className="lg:col-span-4 glass-panel h-[calc(100vh-12rem)] flex flex-col">
+      {/* CART & CHECKOUT */}
+      <Card className="lg:col-span-4 glass-panel flex flex-col h-[calc(100vh-12rem)]">
         <CardHeader className="border-b border-black/[0.04] dark:border-white/[0.06] pb-4 shrink-0">
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-primary" /> Current Order
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShoppingCart className="w-4 h-4 text-primary" /> Current Order
           </CardTitle>
         </CardHeader>
-        
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
+
+        <CardContent className="p-4 overflow-y-auto flex-1 space-y-3 custom-scrollbar">
           {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-muted-foreground/50 italic">
-              <Wine className="w-12 h-12 mb-2 opacity-20" />
-              Cart is empty
+            <div className="text-center py-12 text-muted-foreground/60 text-sm">
+              No items added to order yet.
             </div>
           ) : (
-            cart.map(c => (
-              <div key={c.item.id} className="flex items-center justify-between p-3 rounded-xl border border-black/[0.06] bg-white/50">
-                <div className="flex-1">
-                  <p className="font-bold text-sm">{c.item.name}</p>
-                  <p className="text-xs text-primary font-bold">₦{(c.item.price * c.quantity).toLocaleString()}</p>
+            cart.map(i => (
+              <div key={i.item.id} className="flex items-center justify-between p-2 rounded-lg bg-black/[0.02] dark:bg-white/[0.02]">
+                <div className="flex-1 pr-2">
+                  <p className="text-sm font-semibold truncate">{i.item.name}</p>
+                  <p className="text-xs text-muted-foreground">₦{i.item.price.toLocaleString()} × {i.quantity}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateQuantity(c.item.id, -1)}>
-                    {c.quantity === 1 ? <Trash2 className="w-3 h-3 text-red-500" /> : <Minus className="w-3 h-3" />}
-                  </Button>
-                  <span className="w-4 text-center text-xs font-bold">{c.quantity}</span>
-                  <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateQuantity(c.item.id, 1)}>
+
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    onClick={() => updateQuantity(i.item.id, -1)}
+                    className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 text-xs"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="text-xs font-bold w-4 text-center">{i.quantity}</span>
+                  <button 
+                    onClick={() => updateQuantity(i.item.id, 1)}
+                    className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 text-xs"
+                  >
                     <Plus className="w-3 h-3" />
-                  </Button>
+                  </button>
+                  <button 
+                    onClick={() => updateQuantity(i.item.id, -i.quantity)}
+                    className="p-1 rounded text-red-500 hover:bg-red-500/10 text-xs ml-1"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                 </div>
               </div>
             ))
           )}
         </CardContent>
 
-        {/* CHECKOUT PANEL */}
-        <div className="p-4 border-t border-black/[0.06] shrink-0 space-y-4 bg-muted/20">
-          <div className="flex justify-between items-end">
-            <span className="text-sm font-medium text-muted-foreground">Total Due:</span>
-            <span className="text-3xl font-bold text-foreground">₦{totalAmount.toLocaleString()}</span>
+        <div className="p-4 border-t border-black/[0.04] dark:border-white/[0.06] bg-black/[0.01] dark:bg-white/[0.01] space-y-4 shrink-0">
+          <div className="flex items-center justify-between text-base font-bold">
+            <span>Total:</span>
+            <span className="text-primary text-lg">₦{totalAmount.toLocaleString()}</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 p-1 bg-muted/50 rounded-lg">
+          <div className="grid grid-cols-2 gap-2 p-1 bg-black/5 dark:bg-white/5 rounded-xl">
             <button
               onClick={() => setOrderType("WALKIN")}
-              className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition-all ${orderType === "WALKIN" ? "bg-white shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`py-1.5 text-xs font-semibold rounded-lg transition-all ${orderType === "WALKIN" ? "bg-primary text-black font-bold shadow-sm" : "text-muted-foreground"}`}
             >
-              <User className="w-3.5 h-3.5" /> Walk-in
+              Walk-in Customer
             </button>
             <button
               onClick={() => setOrderType("ROOM")}
-              className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition-all ${orderType === "ROOM" ? "bg-white shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`py-1.5 text-xs font-semibold rounded-lg transition-all ${orderType === "ROOM" ? "bg-primary text-black font-bold shadow-sm" : "text-muted-foreground"}`}
             >
-              <BedDouble className="w-3.5 h-3.5" /> Bill to Room
+              Bill to Room
             </button>
           </div>
 
@@ -182,7 +214,7 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
               placeholder="Customer Name (Optional)" 
               value={customerName} 
               onChange={e => setCustomerName(e.target.value)}
-              className="rounded-xl"
+              className="rounded-xl text-sm"
             />
           ) : (
             <select 
@@ -211,6 +243,13 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
           </Button>
         </div>
       </Card>
+
+      {/* 80mm Thermal Receipt Modal */}
+      <ThermalReceiptModal 
+        isOpen={!!receiptData}
+        onClose={() => setReceiptData(null)}
+        data={receiptData}
+      />
     </div>
   )
 }

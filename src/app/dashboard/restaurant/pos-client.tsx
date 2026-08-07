@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Minus, Plus, ShoppingCart, Trash2, Loader2, Utensils, User, BedDouble } from "lucide-react"
 
+import { ThermalReceiptModal, ReceiptData } from "@/components/thermal-receipt-modal"
+
 export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupiedRooms: any[] }) {
   const [cart, setCart] = useState<{ item: any, quantity: number, customPrice?: number }[]>([])
   const [search, setSearch] = useState("")
@@ -14,6 +16,7 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
   
   const [orderType, setOrderType] = useState<"WALKIN" | "ROOM">("WALKIN")
   const [customerName, setCustomerName] = useState("")
@@ -91,6 +94,24 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
       if (res.error) {
         setError(res.error)
       } else {
+        const roomObj = occupiedRooms.find(r => r.id === selectedRoomId)
+        setReceiptData({
+          title: "RESTAURANT",
+          orderNumber: res.orderId ? res.orderId.slice(-6).toUpperCase() : String(Date.now()).slice(-6),
+          date: new Date().toLocaleString(),
+          orderType: orderType === "WALKIN" ? "Walk-in" : "Room Charge",
+          customerName: orderType === "WALKIN" ? (customerName || "Dine-in / Walk-in Guest") : roomObj?.reservations?.[0]?.guest?.firstName + " " + (roomObj?.reservations?.[0]?.guest?.lastName || ""),
+          roomNumber: orderType === "ROOM" ? roomObj?.number : undefined,
+          items: cart.map(c => ({
+            name: c.item.name,
+            quantity: c.quantity,
+            unitPrice: c.customPrice ?? c.item.price,
+            totalPrice: (c.customPrice ?? c.item.price) * c.quantity
+          })),
+          totalAmount,
+          paymentStatus: orderType === "WALKIN" ? "PAID" : "CHARGED TO ROOM"
+        })
+
         setCart([])
         setCustomerName("")
         setSelectedRoomId("")
@@ -114,40 +135,51 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
               className="max-w-xs rounded-xl"
             />
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
             {categories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${categoryFilter === cat ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  categoryFilter === cat 
+                    ? "bg-primary text-black font-bold shadow-sm" 
+                    : "bg-black/5 dark:bg-white/5 text-muted-foreground hover:bg-black/10"
+                }`}
               >
                 {cat}
               </button>
             ))}
           </div>
         </CardHeader>
-        <CardContent className="p-4 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {filteredCatalog.map(item => (
-            <button
-              key={item.id}
-              onClick={() => addToCart(item)}
-              className="flex flex-col text-left p-3 rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-white/50 dark:bg-white/[0.02] hover:border-primary/20 hover:bg-primary/[0.03] transition-all group relative"
-            >
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-1">{item.category}</span>
-              <span className="font-bold text-sm text-foreground leading-tight line-clamp-2 min-h-[2.5rem]">{item.name}</span>
-              <span className="text-primary font-bold mt-2">
-                {item.price === 0 ? "Price on Request" : `₦${item.price.toLocaleString()}`}
-              </span>
-            </button>
-          ))}
+        <CardContent className="p-4 overflow-y-auto flex-1 custom-scrollbar">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {filteredCatalog.map(item => (
+              <div 
+                key={item.id}
+                onClick={() => addToCart(item)}
+                className="p-3 rounded-xl border border-black/[0.05] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.02] hover:bg-primary/10 hover:border-primary/30 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <p className="font-semibold text-sm line-clamp-1">{item.name}</p>
+                  <p className="text-xs text-muted-foreground">{item.category}</p>
+                </div>
+                <div className="flex items-center justify-between mt-3">
+                  <p className="font-bold text-sm text-primary">
+                    {item.price === 0 ? "Price on Request" : `₦${item.price.toLocaleString()}`}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground">Stock: {item.stock}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
-      {/* CART */}
-      <Card className="lg:col-span-4 glass-panel h-[calc(100vh-12rem)] flex flex-col">
+      {/* CART & CHECKOUT */}
+      <Card className="lg:col-span-4 glass-panel flex flex-col h-[calc(100vh-12rem)]">
         <CardHeader className="border-b border-black/[0.04] dark:border-white/[0.06] pb-4 shrink-0">
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-primary" /> Current Order
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShoppingCart className="w-4 h-4 text-primary" /> Current Order
           </CardTitle>
         </CardHeader>
         
@@ -249,6 +281,13 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
           </Button>
         </div>
       </Card>
+
+      {/* 80mm Thermal Receipt Modal */}
+      <ThermalReceiptModal 
+        isOpen={!!receiptData}
+        onClose={() => setReceiptData(null)}
+        data={receiptData}
+      />
     </div>
   )
 }

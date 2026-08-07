@@ -88,7 +88,7 @@ model Reservation {
 model Payment {
   id            String      @id @default(cuid())
   reservationId String      @unique
-  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   amount        Float
   currency      String      @default("NGN")
   status        String      @default("PENDING") // PENDING, SUCCESS, FAILED
@@ -102,7 +102,7 @@ model Payment {
 model BookingExtra {
   id            String      @id @default(cuid())
   reservationId String
-  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   name          String
   price         Float
   quantity      Int         @default(1)
@@ -198,7 +198,7 @@ model BarOrder {
   customerName  String?  
   isWalkIn      Boolean  @default(true)
   reservationId String?
-  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
   status        String   @default("COMPLETED") 
   totalAmount   Float
   items         BarOrderItem[]
@@ -234,7 +234,7 @@ model RestaurantOrder {
   customerName  String?  
   isWalkIn      Boolean  @default(true)
   reservationId String?
-  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
   status        String   @default("COMPLETED") 
   totalAmount   Float
   items         RestaurantOrderItem[]
