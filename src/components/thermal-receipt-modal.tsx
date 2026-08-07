@@ -55,7 +55,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
         </div>
 
         {/* 80mm RECEIPT PAPER DISPLAY */}
-        <div id="thermal-receipt" className="bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl print:shadow-none print:p-2 print:rounded-none">
+        <div id="thermal-receipt" className="print-thermal bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl print:shadow-none print:p-2 print:rounded-none">
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-black/30">
             <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>
@@ -157,32 +157,6 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
           </Button>
         </div>
       </div>
-
-      {/* Global CSS for Thermal Print Styling */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          #thermal-receipt, #thermal-receipt * {
-            visibility: visible !important;
-          }
-          #thermal-receipt {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 80mm !important;
-            padding: 4mm !important;
-            margin: 0 !important;
-            background: white !important;
-            color: black !important;
-          }
-          @page {
-            size: 80mm auto;
-            margin: 0mm;
-          }
-        }
-      `}</style>
     </div>
   )
 }
