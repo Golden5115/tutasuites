@@ -1,46 +1,65 @@
 import crypto from 'crypto'
-import fs from 'fs'
-import path from 'path'
 
-const KEYS_DIR = path.join(process.cwd(), 'keys')
-const PRIVATE_KEY_PATH = path.join(KEYS_DIR, 'qz-private.pem')
-const CERT_PATH = path.join(process.cwd(), 'tutasuites-cert.pem')
+const QZ_DEMO_CERT = `-----BEGIN CERTIFICATE-----
+MIIECzCCAvOgAwIBAgIGAZ/iGyDtMA0GCSqGSIb3DQEBCwUAMIGiMQswCQYDVQQG
+EwJVUzELMAkGA1UECAwCTlkxEjAQBgNVBAcMCUNhbmFzdG90YTEbMBkGA1UECgwS
+UVogSW5kdXN0cmllcywgTExDMRswGQYDVQQLDBJRWiBJbmR1c3RyaWVzLCBMTEMx
+HDAaBgkqhkiG9w0BCQEWDXN1cHBvcnRAcXouaW8xGjAYBgNVBAMMEVFaIFRyYXkg
+RGVtbyBDZXJ0MB4XDTI2MDgwNzE2MDA1NloXDTQ2MDgwNzE2MDA1NlowgaIxCzAJ
+BgNVBAYTAlVTMQswCQYDVQQIDAJOWTESMBAGA1UEBwwJQ2FuYXN0b3RhMRswGQYD
+VQQKDBJRWiBJbmR1c3RyaWVzLCBMTEMxGzAZBgNVBAsMElFaIEluZHVzdHJpZXMs
+IExMQzEcMBoGCSqGSIb3DQEJARYNc3VwcG9ydEBxei5pbzEaMBgGA1UEAwwRUVog
+VHJheSBEZW1vIENlcnQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCt
+E0+kO/deQgTTvkLx6wrl9L7ow0W7wV5wH2Vjy+ihoDGRUBJ2ygXh/GM9EVGP1Y+H
+Ojw/0R3QYhIlOnnRigMsc38XO3nVQh3AYw7K8jWc69QHLZNxe9HVUJQlRRv+2m/I
+Gf4Yq4jzmGv2RxLOjVqtlQfpobrJ2HH4e3GJw0ghoasW3CBzB9/wZvgETW8WAxmr
+0wd/wieUetkcC4J71tIDIuw1mOTU62ktMXtejWGyWo7TMEuPvPEbosgk2XX1dnUG
+/IKQezNKSlmNHRRtO7cTfmZatrzqYsXyFA7uT9SJz2YuqKVBn+yd9sEBadwND0x0
+stoQj2zVQReDR0kwsk2RAgMBAAGjRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQEwDgYD
+VR0PAQH/BAQDAgEGMB0GA1UdDgQWBBQCCdDFSJb0FKYR+wYGayWvaPevEzANBgkq
+hkiG9w0BAQsFAAOCAQEAZstO8OvnjtzcrQKnM1eG2d/GAxX7P2h+2BGeKkQkxMzr
+wUlUMfKq2VtIaiS6b68CXB5PvSPTUp3ee32cC7+MzC7s0WiOPwCb0XSwCmXjYihu
+hL4DePMaM8V3nuSyLIxuFY8WI6A94AjRoFB1yxOAOgqybU1jET/ILSkzqU0C83KH
+YsVawUXF+hVHe+E0utguuSmjFMvqPOMWxCo5Yv4l31ZxLwhD57n8sNBNbfum31Tg
+KcCMaY6sTcZ3mZ+GFJs+V1EGdZ0gIZTMDtuPFW6vRrP6AdMerYIK0uppLS6OTU+D
+gQKxZnnKllcuQZbxKvqUGEspJj37X595mocvvMVOyQ==
+-----END CERTIFICATE-----`
 
-function ensureKeysExist() {
-  if (!fs.existsSync(KEYS_DIR)) {
-    fs.mkdirSync(KEYS_DIR, { recursive: true })
-  }
-
-  if (!fs.existsSync(PRIVATE_KEY_PATH) || !fs.existsSync(CERT_PATH)) {
-    // Generate RSA 2048 key pair
-    const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: {
-        type: 'spki',
-        format: 'pem',
-      },
-      privateKeyEncoding: {
-        type: 'pkcs8',
-        format: 'pem',
-      },
-    })
-
-    // Self-sign a simple X.509 certificate representation for QZ Tray
-    // For standard RSA public cert, QZ Tray reads the PEM formatted certificate.
-    fs.writeFileSync(PRIVATE_KEY_PATH, privateKey)
-    fs.writeFileSync(CERT_PATH, publicKey)
-  }
-}
+const QZ_DEMO_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC0z9FeMynsC8+u
+dvX+LciZxnh5uRj4C9S6tNeeAlIGCfQYk0zUcNFCoCkTknNQd/YEiawDLNbxBqut
+bMDZ1aarys1a0lYmUeVLCIqvzBkPJTSQsCopQQ9V8WuT252zzNzs68dVGNdCJd5J
+NRQykpwexmnjPPv0mvj7i8XgG379TyW6P+WWV5okeUkXJ9eJS2ouDYdR2SM9BoVW
++FgxDu6BmXhozW5EfsnajFp7HL8kQClI0QOc79yuKl3492rH6bzFsFn2lfwWy9ic
+7cP8EpCTeFp1tFaD+vxBhPZkeTQ1HKx6hQ5zeHIB5ySJJZ7af2W8r4eTGYzbdRW2
+4DDHCPhZAgMBAAECggEATvofR3gtrY8TLe+ET3wMDS8l3HU/NMlmKA9pxvjYfw7F
+8h4VBw4oOWPfzU7A07syWJUR72kckbcKMfw42G18GbnBrRQG0UIgV3/ppBQQNg9Y
+QILSR6bFXhLPnIvm/GxVa58pOEBbdec4it2Gbvie/MpJ4hn3K8atTqKk0djwxQ+b
+QNBWtVgTkyIqMpUTFDi5ECiVXaGWZ5AOVK2TzlLRNQ5Y7US8lmGxVWzt0GONjXSE
+iO/eBk8A7wI3zknMx5o1uZa/hFCPQH33uKeuqU5rmphi3zS0BY7iGY9EoKu/o+BO
+HPwLQJ3wCDA3O9APZ3gmmbHFPMFPr/mVGeAeGP/BAQKBgQDaPELRriUaanWrZpgT
+VnKKrRSqPED3anAVgmDfzTQwuR/3oD506F3AMBzloAo3y9BXmDfe8qLn6kgdZQKy
+SFNLz888at96oi+2mEKPpvssqiwE6F3OtEM6yv4DP9KJHaHmXaWv+/sjwjzpFNjs
+wGThBxFvrTWRJqBYsM1XNJJ2EQKBgQDUGbTSwHKqRCYWhQ1GPCZKE98l5UtMKvUb
+hyWWOXoyoeYbJEMfG1ynX4JeXIkl6YtBjYCqszv9PjHa1rowTZaAPJ0V70zyhTcF
+t581ii9LpiejIGrELHvJnW87QmjjStkjwGIqgKLp7Qe6CDjHI9HP1NM0uav/IQLW
+pB6wyEz1yQKBgQCuxPut+Ax2rzM05KB9PAnWzO1zt3U/rtm8IAF8uVVGf7r+EDJ0
+ZXJO6zj5G8WTEYHz5E86GI4ltBW0lKQoKouqdu27sMrv5trXG/CSImOcTVubQot9
+chc1CkOKTp5IeJajafO6j817wZ4N+0gNsbYYEBUCnm/7ojdfT5ficpOoQQKBgQDB
+PgKPmaNfGeQR1Ht5qEfCakR/RF/ML79Nq15FdmytQPBjfjBhYQ6Tt+MRkgGqtxOX
+UBMQc2iOnGHT3puYcrhScec1GufidhjhbqDxqMrag7HNYDWmMlk+IeA7/4+Mtp8L
+gbZuvvCvbLQDfIYueaYpUuBzQ08/jZYGdVU4/+WOcQKBgAGUN0kIB6EM1K/iZ0TN
+jlt8P5UEV3ZCyATWFiGZRhhE2WAh8gv1jx4J26pcUs1n8sd2a1h6ZuBSqsyIlNSp
+xtKsm3bqQFDHRrPcsBX4nanrw9DzkpH1k/I3WMSdGqkDAR3DtL7yXTJXJo2Sbrp5
+EjzSn7DcDE1tL2En/tSVXeUY
+-----END PRIVATE KEY-----`
 
 export function getQzCertificate(): string {
-  ensureKeysExist()
-  return fs.readFileSync(CERT_PATH, 'utf8')
+  return QZ_DEMO_CERT
 }
 
 export function signQzHash(toSign: string): string {
-  ensureKeysExist()
-  const privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8')
   const sign = crypto.createSign('SHA512')
   sign.update(toSign)
-  return sign.sign(privateKey, 'base64')
+  return sign.sign(QZ_DEMO_PRIVATE_KEY, 'base64')
 }
