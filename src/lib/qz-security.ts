@@ -4,7 +4,7 @@ import path from 'path'
 
 const KEYS_DIR = path.join(process.cwd(), 'keys')
 const PRIVATE_KEY_PATH = path.join(KEYS_DIR, 'qz-private.pem')
-const CERT_PATH = path.join(KEYS_DIR, 'qz-cert.pem')
+const CERT_PATH = path.join(process.cwd(), 'tutasuites-cert.pem')
 
 function ensureKeysExist() {
   if (!fs.existsSync(KEYS_DIR)) {
@@ -40,8 +40,7 @@ export function getQzCertificate(): string {
 export function signQzHash(toSign: string): string {
   ensureKeysExist()
   const privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8')
-  const sign = crypto.createSign('SHA256')
+  const sign = crypto.createSign('SHA512')
   sign.update(toSign)
-  sign.end()
   return sign.sign(privateKey, 'base64')
 }
