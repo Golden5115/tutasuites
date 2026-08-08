@@ -198,9 +198,15 @@ export async function printReceipt(receiptHtml: string) {
         .catch(reject)
     })
 
+    qz.default.security.setSignatureAlgorithm('SHA512')
+
     qz.default.security.setSignaturePromise((toSign: string) => {
       return (resolve: (sig: string) => void, reject: (reason: any) => void) => {
-        fetch(`/api/qz/sign?toSign=${encodeURIComponent(toSign)}`)
+        fetch('/api/qz/sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestToSign: toSign }),
+        })
           .then((res) => res.text())
           .then(resolve)
           .catch(reject)
