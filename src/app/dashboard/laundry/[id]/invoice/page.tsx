@@ -26,7 +26,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
       <div class="item-row">
         <span class="col-item">${item.catalogItem.name}</span>
         <span class="col-qty">${item.quantity}</span>
-        <span class="col-amt">₦${item.totalPrice.toLocaleString()}</span>
+        <span class="col-amt">#${item.totalPrice.toLocaleString()}</span>
       </div>`
     )
     .join('')
@@ -35,7 +35,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     <div class="receipt-header">
       <h2>TUTA SUITES</h2>
       <div class="address">
-        Assurance CDA Estate, Orimerunmu<br/>
+        3, Assurance CDA Estate, Orimerunmu<br/>
         Mowe-Ibafo, Ogun State<br/>
         Tel: +234 811 182 1899
       </div>
@@ -59,7 +59,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
     <div class="total-section">
       <div class="total-row">
         <span>TOTAL:</span>
-        <span>₦${request.totalAmount.toLocaleString()}</span>
+        <span>#${request.totalAmount.toLocaleString()}</span>
       </div>
       <div class="status-row"><span>Payment:</span><span>${request.paymentStatus}</span></div>
     </div>
@@ -100,7 +100,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           </div>
           <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>
           <p className="text-[10px] text-zinc-600 leading-tight mt-0.5">
-            Assurance CDA Estate, Orimerunmu<br />
+            3, Assurance CDA Estate, Orimerunmu<br />
             Mowe-Ibafo, Ogun State<br />
             Tel: +234 811 182 1899
           </p>
@@ -149,7 +149,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
               <div key={item.id} className="grid grid-cols-12 text-[11px] leading-tight">
                 <span className="col-span-6 font-medium truncate pr-1">{item.catalogItem.name}</span>
                 <span className="col-span-2 text-center">{item.quantity}</span>
-                <span className="col-span-4 text-right font-bold">₦{item.totalPrice.toLocaleString()}</span>
+                <span className="col-span-4 text-right font-bold">#{item.totalPrice.toLocaleString()}</span>
               </div>
             ))}
           </div>
@@ -159,7 +159,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <div className="py-3 space-y-1.5 text-[11px]">
           <div className="flex justify-between text-sm font-bold pt-1 border-t border-black">
             <span>TOTAL:</span>
-            <span>₦{request.totalAmount.toLocaleString()}</span>
+            <span>#{request.totalAmount.toLocaleString()}</span>
           </div>
         </div>
 

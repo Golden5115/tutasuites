@@ -75,7 +75,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
           <div className="text-center pb-3 border-b border-dashed border-black/30">
             <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>
             <p className="text-[10px] text-zinc-600 leading-tight mt-0.5">
-              Assurance CDA Estate, Orimerunmu<br />
+              3, Assurance CDA Estate, Orimerunmu<br />
               Mowe-Ibafo, Ogun State<br />
               Tel: +234 811 182 1899
             </p>
@@ -126,7 +126,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
                 <div key={index} className="grid grid-cols-12 text-[11px] leading-tight">
                   <span className="col-span-6 font-medium truncate pr-1">{item.name}</span>
                   <span className="col-span-2 text-center">{item.quantity}</span>
-                  <span className="col-span-4 text-right font-bold">₦{item.totalPrice.toLocaleString()}</span>
+                  <span className="col-span-4 text-right font-bold">#{item.totalPrice.toLocaleString()}</span>
                 </div>
               ))}
             </div>
@@ -136,7 +136,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
           <div className="py-3 space-y-1.5 text-[11px]">
             <div className="flex justify-between text-sm font-bold pt-1 border-t border-black">
               <span>TOTAL:</span>
-              <span>₦{data.totalAmount.toLocaleString()}</span>
+              <span>#{data.totalAmount.toLocaleString()}</span>
             </div>
             {data.paymentStatus && (
               <div className="flex justify-between text-[10px] text-zinc-600 uppercase font-semibold">
