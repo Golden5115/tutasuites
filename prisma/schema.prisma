@@ -135,6 +135,7 @@ model User {
   password      String    
   role          Role      @default(FRONT_DESK)
   modules       String[]  
+  isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }

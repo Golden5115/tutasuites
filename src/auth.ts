@@ -25,6 +25,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!user || !user.password) return null
 
+        if (user.isActive === false) {
+          throw new Error("AccountDeactivated")
+        }
+
         const passwordsMatch = await bcrypt.compare(
           password as string,
           user.password
