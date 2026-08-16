@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { ExpenseForm } from "./expense-form"
 import { ExpenseList } from "./expense-list"
-import { Banknote, TrendingUp, TrendingDown, CalendarCheck, BedDouble } from "lucide-react"
+import { Banknote, TrendingUp, TrendingDown, CalendarCheck, BedDouble, Wine, Utensils, Shirt } from "lucide-react"
 
 export default async function FinancePage() {
   const session = await auth()
@@ -11,7 +11,7 @@ export default async function FinancePage() {
     redirect("/dashboard")
   }
 
-  // 1. Calculate Revenue (Sum of totalAmount for reservations that are checked in, checked out, or confirmed)
+  // 1. Calculate Room Revenue (Reservations that are confirmed, checked in, or checked out)
   const validReservations = await prisma.reservation.findMany({
     where: {
       status: { in: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] }
@@ -22,9 +22,29 @@ export default async function FinancePage() {
     },
     orderBy: { createdAt: 'desc' }
   })
-
-  const totalRevenue = validReservations.reduce((acc, curr) => acc + curr.totalAmount, 0)
+  const roomRevenue = validReservations.reduce((acc, curr) => acc + curr.totalAmount, 0)
   const totalBookings = validReservations.length
+
+  // Walk-in Bar revenue (Room charges are already included inside reservation totalAmount)
+  const walkInBarOrders = await prisma.barOrder.findMany({
+    where: { isWalkIn: true }
+  })
+  const barRevenue = walkInBarOrders.reduce((acc, curr) => acc + curr.totalAmount, 0)
+
+  // Walk-in Restaurant revenue
+  const walkInRestaurantOrders = await prisma.restaurantOrder.findMany({
+    where: { isWalkIn: true }
+  })
+  const restaurantRevenue = walkInRestaurantOrders.reduce((acc, curr) => acc + curr.totalAmount, 0)
+
+  // Paid Laundry revenue
+  const paidLaundryRequests = await prisma.laundryRequest.findMany({
+    where: { paymentStatus: "PAID" }
+  })
+  const laundryRevenue = paidLaundryRequests.reduce((acc, curr) => acc + curr.totalAmount, 0)
+
+  // Total Gross Revenue across all operations
+  const totalRevenue = roomRevenue + barRevenue + restaurantRevenue + laundryRevenue
 
   // 2. Calculate Expenses
   const expenses = await prisma.expense.findMany({
@@ -36,7 +56,7 @@ export default async function FinancePage() {
   // 3. Net Profit
   const netProfit = totalRevenue - totalExpenses
 
-  // 4. Occupancy metric (Rooms occupied vs total)
+  // 4. Occupancy metric
   const totalRoomsCount = await prisma.room.count()
   const occupiedRoomsCount = await prisma.room.count({ where: { status: "OCCUPIED" } })
   const occupancyRate = totalRoomsCount > 0 ? (occupiedRoomsCount / totalRoomsCount) * 100 : 0
@@ -45,7 +65,7 @@ export default async function FinancePage() {
     <div className="p-8 max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
       <div>
         <h1 className="text-3xl font-heading font-bold tracking-wide">Finance & Analytics</h1>
-        <p className="text-muted-foreground mt-1">Track revenue, monitor expenses, and analyze hotel performance.</p>
+        <p className="text-muted-foreground mt-1">Track revenue across all departments, monitor expenses, and analyze hotel performance.</p>
       </div>
 
       {/* KPI METRICS */}
@@ -94,7 +114,7 @@ export default async function FinancePage() {
           </p>
         </div>
 
-        {/* METRICS */}
+        {/* OCCUPANCY */}
         <div className="glass-panel p-5 rounded-2xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform duration-500 pointer-events-none">
             <BedDouble className="w-16 h-16" />
@@ -103,12 +123,43 @@ export default async function FinancePage() {
             <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
               <CalendarCheck className="h-5 w-5 text-blue-500" />
             </div>
-            <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Total Bookings</p>
+            <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Bookings & Occupancy</p>
           </div>
           <div className="flex items-end justify-between">
             <p className="text-3xl font-bold text-foreground">{totalBookings}</p>
             <p className="text-xs font-medium text-muted-foreground mb-1">{occupancyRate.toFixed(1)}% Occupancy</p>
           </div>
+        </div>
+      </div>
+
+      {/* DEPARTMENT REVENUE BREAKDOWN */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-4 rounded-xl border bg-card/60 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-semibold uppercase">
+            <BedDouble className="w-4 h-4 text-blue-500" /> Rooms
+          </div>
+          <p className="text-lg font-bold text-foreground mt-2">₦{roomRevenue.toLocaleString()}</p>
+        </div>
+
+        <div className="p-4 rounded-xl border bg-card/60 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-semibold uppercase">
+            <Wine className="w-4 h-4 text-amber-500" /> Bar Walk-ins
+          </div>
+          <p className="text-lg font-bold text-foreground mt-2">₦{barRevenue.toLocaleString()}</p>
+        </div>
+
+        <div className="p-4 rounded-xl border bg-card/60 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-semibold uppercase">
+            <Utensils className="w-4 h-4 text-emerald-500" /> Kitchen Walk-ins
+          </div>
+          <p className="text-lg font-bold text-foreground mt-2">₦{restaurantRevenue.toLocaleString()}</p>
+        </div>
+
+        <div className="p-4 rounded-xl border bg-card/60 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-2 text-muted-foreground text-xs font-semibold uppercase">
+            <Shirt className="w-4 h-4 text-purple-500" /> Laundry
+          </div>
+          <p className="text-lg font-bold text-foreground mt-2">₦{laundryRevenue.toLocaleString()}</p>
         </div>
       </div>
 

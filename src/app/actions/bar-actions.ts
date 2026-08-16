@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { getDateBounds } from "@/lib/date-utils"
 
 export async function getBarCatalog() {
   return await prisma.barItem.findMany({
@@ -130,17 +131,95 @@ export async function deleteBarItem(id: string) {
   }
 }
 
-export async function getRecentBarOrders() {
+export async function getBarOrders(options?: { dateFilter?: string; limit?: number }) {
+  const dateBounds = getDateBounds(options?.dateFilter || "today")
+  
   return await prisma.barOrder.findMany({
-    take: 20,
+    where: dateBounds ? { createdAt: dateBounds } : undefined,
+    take: options?.limit || 100,
     orderBy: { createdAt: 'desc' },
     include: {
       reservation: {
-        include: { room: true }
+        include: { room: true, guest: true }
       },
       items: {
         include: { item: true }
       }
     }
   })
+}
+
+export async function getBarOrderById(id: string) {
+  return await prisma.barOrder.findUnique({
+    where: { id },
+    include: {
+      reservation: {
+        include: { room: true, guest: true }
+      },
+      items: {
+        include: { item: true }
+      }
+    }
+  })
+}
+
+export async function getBarAnalytics(dateFilter: string = "today") {
+  const dateBounds = getDateBounds(dateFilter)
+  
+  const orders = await prisma.barOrder.findMany({
+    where: dateBounds ? { createdAt: dateBounds } : undefined,
+    include: {
+      items: {
+        include: { item: true }
+      }
+    }
+  })
+
+  let totalRevenue = 0
+  let walkInRevenue = 0
+  let walkInCount = 0
+  let roomChargeRevenue = 0
+  let roomChargeCount = 0
+
+  const itemMap: Record<string, { name: string; category: string; quantity: number; revenue: number }> = {}
+
+  for (const order of orders) {
+    totalRevenue += order.totalAmount
+    if (order.isWalkIn) {
+      walkInRevenue += order.totalAmount
+      walkInCount++
+    } else {
+      roomChargeRevenue += order.totalAmount
+      roomChargeCount++
+    }
+
+    for (const orderItem of order.items) {
+      const itemName = orderItem.item?.name || "Unknown Item"
+      const category = orderItem.item?.category || "Drinks"
+      if (!itemMap[itemName]) {
+        itemMap[itemName] = {
+          name: itemName,
+          category,
+          quantity: 0,
+          revenue: 0
+        }
+      }
+      itemMap[itemName].quantity += orderItem.quantity
+      itemMap[itemName].revenue += orderItem.totalPrice
+    }
+  }
+
+  const itemsSold = Object.values(itemMap).sort((a, b) => b.quantity - a.quantity)
+  const topItems = itemsSold.slice(0, 8)
+
+  return {
+    totalRevenue,
+    totalOrders: orders.length,
+    walkInRevenue,
+    walkInCount,
+    roomChargeRevenue,
+    roomChargeCount,
+    itemsSold,
+    topItems,
+  }
 }

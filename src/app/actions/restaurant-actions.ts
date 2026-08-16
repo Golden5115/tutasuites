@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
+import { getDateBounds } from "@/lib/date-utils"
 
 export async function getRestaurantCatalog() {
   return await prisma.restaurantItem.findMany({
@@ -123,5 +124,116 @@ export async function deleteRestaurantItem(id: string) {
     return { success: true }
   } catch (e) {
     return { error: "Failed to delete item" }
+  }
+}
+
+export async function getRestaurantOrders(options?: { dateFilter?: string; limit?: number }) {
+  const dateBounds = getDateBounds(options?.dateFilter || "today")
+  
+  return await prisma.restaurantOrder.findMany({
+    where: dateBounds ? { createdAt: dateBounds } : undefined,
+    take: options?.limit || 100,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      reservation: {
+        include: { room: true, guest: true }
+      },
+      items: {
+        include: { item: true }
+      }
+    }
+  })
+}
+
+export async function getRestaurantOrderById(id: string) {
+  return await prisma.restaurantOrder.findUnique({
+    where: { id },
+    include: {
+      reservation: {
+        include: { room: true, guest: true }
+      },
+      items: {
+        include: { item: true }
+      }
+    }
+  })
+}
+
+export async function getRestaurantAnalytics(dateFilter: string = "today") {
+  const dateBounds = getDateBounds(dateFilter)
+  
+  const orders = await prisma.restaurantOrder.findMany({
+    where: dateBounds ? { createdAt: dateBounds } : undefined,
+    include: {
+      items: {
+        include: { item: true }
+      }
+    }
+  })
+
+  let totalRevenue = 0
+  let walkInRevenue = 0
+  let walkInCount = 0
+  let roomChargeRevenue = 0
+  let roomChargeCount = 0
+
+  const itemMap: Record<string, { name: string; category: string; quantity: number; revenue: number }> = {}
+  const comboMap: Record<string, { combo: string; count: number }> = {}
+
+  for (const order of orders) {
+    totalRevenue += order.totalAmount
+    if (order.isWalkIn) {
+      walkInRevenue += order.totalAmount
+      walkInCount++
+    } else {
+      roomChargeRevenue += order.totalAmount
+      roomChargeCount++
+    }
+
+    const uniqueItemNames = Array.from(new Set(order.items.map(i => i.item?.name).filter(Boolean))) as string[]
+
+    for (const orderItem of order.items) {
+      const itemName = orderItem.item?.name || "Unknown Item"
+      const category = orderItem.item?.category || "Food"
+      if (!itemMap[itemName]) {
+        itemMap[itemName] = {
+          name: itemName,
+          category,
+          quantity: 0,
+          revenue: 0
+        }
+      }
+      itemMap[itemName].quantity += orderItem.quantity
+      itemMap[itemName].revenue += orderItem.totalPrice
+    }
+
+    // Identify food combos (pairs ordered together)
+    if (uniqueItemNames.length > 1) {
+      for (let i = 0; i < uniqueItemNames.length; i++) {
+        for (let j = i + 1; j < uniqueItemNames.length; j++) {
+          const comboKey = [uniqueItemNames[i], uniqueItemNames[j]].sort().join(" + ")
+          if (!comboMap[comboKey]) {
+            comboMap[comboKey] = { combo: comboKey, count: 0 }
+          }
+          comboMap[comboKey].count++
+        }
+      }
+    }
+  }
+
+  const itemsSold = Object.values(itemMap).sort((a, b) => b.quantity - a.quantity)
+  const topItems = itemsSold.slice(0, 8)
+  const topCombos = Object.values(comboMap).sort((a, b) => b.count - a.count).slice(0, 6)
+
+  return {
+    totalRevenue,
+    totalOrders: orders.length,
+    walkInRevenue,
+    walkInCount,
+    roomChargeRevenue,
+    roomChargeCount,
+    itemsSold,
+    topItems,
+    topCombos,
   }
 }
