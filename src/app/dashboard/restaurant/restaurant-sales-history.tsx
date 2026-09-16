@@ -15,15 +15,19 @@ import {
   Utensils, 
   BedDouble, 
   User, 
-  Sparkles,
-  Loader2,
-  Receipt,
-  Flame,
-  Layers
+  Sparkles, 
+  Loader2, 
+  Receipt, 
+  Flame, 
+  Layers,
+  Link2,
+  Wine
 } from "lucide-react"
 import Link from "next/link"
 import { printDailySummary } from "@/lib/daily-summary-print"
 import { ThermalReceiptModal, ReceiptData } from "@/components/thermal-receipt-modal"
+import { LinkSalesDialog } from "@/components/link-sales-dialog"
+import { getCombinedReceiptData } from "@/app/actions/combined-order-actions"
 
 interface RestaurantSalesHistoryProps {
   initialOrders: any[]
@@ -48,6 +52,9 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
   const [isPending, startTransition] = useTransition()
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptData | null>(null)
   const [isPrintingSummary, setIsPrintingSummary] = useState(false)
+  const [linkingRestOrderId, setLinkingRestOrderId] = useState<string | null>(null)
+  const [isGeneralLinkOpen, setIsGeneralLinkOpen] = useState(false)
+  const [isGeneratingCombined, setIsGeneratingCombined] = useState<string | null>(null)
 
   const handleFilterChange = (filter: string) => {
     setDateFilter(filter)
@@ -163,18 +170,29 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
           {isPending && <Loader2 className="w-4 h-4 animate-spin text-primary ml-2" />}
         </div>
 
-        <Button
-          onClick={handlePrintDailySummary}
-          disabled={isPrintingSummary || analytics.totalOrders === 0}
-          className="gap-2 bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-black font-bold uppercase tracking-wider text-xs rounded-xl shadow-md hover:opacity-90 transition-all"
-        >
-          {isPrintingSummary ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Printer className="w-4 h-4" />
-          )}
-          Print Kitchen Shift Report (80mm)
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <Button
+            onClick={() => setIsGeneralLinkOpen(true)}
+            variant="outline"
+            className="gap-1.5 border-primary/40 text-foreground hover:bg-primary/10 text-xs rounded-xl font-bold h-9"
+          >
+            <Link2 className="w-4 h-4 text-primary" />
+            Link Food & Bar Sales
+          </Button>
+
+          <Button
+            onClick={handlePrintDailySummary}
+            disabled={isPrintingSummary || analytics.totalOrders === 0}
+            className="gap-2 bg-gradient-to-r from-[#D4AF37] to-[#AA7C11] text-black font-bold uppercase tracking-wider text-xs rounded-xl shadow-md hover:opacity-90 transition-all h-9"
+          >
+            {isPrintingSummary ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Printer className="w-4 h-4" />
+            )}
+            Print Kitchen Shift Report (80mm)
+          </Button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -364,6 +382,12 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
                         <td className="p-3.5">
                           <div className="font-bold text-foreground">#{order.id.slice(-6).toUpperCase()}</div>
                           <div className="text-[10px] text-muted-foreground">{orderDate}</div>
+                          {order.linkedBarOrder && (
+                            <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] font-bold border border-purple-500/20">
+                              <Wine className="w-2.5 h-2.5" />
+                              Linked Bar #{order.linkedBarOrder.id.slice(-4).toUpperCase()} (+₦{order.linkedBarOrder.totalAmount.toLocaleString()})
+                            </div>
+                          )}
                         </td>
                         <td className="p-3.5">
                           <div className="font-medium text-foreground">{customerName}</div>
@@ -384,6 +408,11 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
                         </td>
                         <td className="p-3.5">
                           <span className="font-bold text-foreground">₦{order.totalAmount.toLocaleString()}</span>
+                          {order.linkedBarOrder && (
+                            <div className="text-[10px] text-muted-foreground">
+                              Total w/ Bar: <span className="font-bold text-primary">₦{(order.totalAmount + order.linkedBarOrder.totalAmount).toLocaleString()}</span>
+                            </div>
+                          )}
                         </td>
                         <td className="p-3.5">
                           {order.isWalkIn ? (
@@ -397,7 +426,44 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
                           )}
                         </td>
                         <td className="p-3.5 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {order.linkedBarOrder ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  setIsGeneratingCombined(order.id)
+                                  const res = await getCombinedReceiptData({
+                                    restaurantOrderId: order.id,
+                                    barOrderId: order.linkedBarOrder.id
+                                  })
+                                  if (res.success && res.receiptData) {
+                                    setSelectedReceipt(res.receiptData)
+                                  }
+                                  setIsGeneratingCombined(null)
+                                }}
+                                disabled={isGeneratingCombined === order.id}
+                                className="h-7 px-2 text-[11px] gap-1 rounded-lg bg-primary/10 border-primary/40 text-primary hover:bg-primary/20 font-bold"
+                              >
+                                {isGeneratingCombined === order.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Receipt className="w-3 h-3" />
+                                )}
+                                Combined Receipt
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setLinkingRestOrderId(order.id)}
+                                className="h-7 px-2 text-[11px] gap-1 rounded-lg border-dashed border-primary/50 text-foreground hover:bg-primary/10"
+                              >
+                                <Link2 className="w-3 h-3 text-primary" />
+                                Link to Bar
+                              </Button>
+                            )}
+
                             <Button
                               variant="outline"
                               size="sm"
@@ -405,9 +471,10 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
                               className="h-7 px-2 text-[11px] gap-1 rounded-lg border-primary/30 text-primary hover:bg-primary/10"
                             >
                               <Printer className="w-3 h-3" />
-                              Reprint
+                              Kitchen
                             </Button>
-                            <Link href={`/dashboard/restaurant/${order.id}/invoice`}>
+
+                            <Link href={order.linkedBarOrder ? `/dashboard/combined-invoice?restaurantId=${order.id}&barId=${order.linkedBarOrder.id}` : `/dashboard/restaurant/${order.id}/invoice`}>
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -434,6 +501,28 @@ export function RestaurantSalesHistory({ initialOrders, initialAnalytics }: Rest
         isOpen={!!selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
         data={selectedReceipt}
+      />
+
+      {/* Link Sales Dialog */}
+      <LinkSalesDialog
+        isOpen={isGeneralLinkOpen || !!linkingRestOrderId}
+        initialRestaurantOrderId={linkingRestOrderId || undefined}
+        onClose={() => {
+          setIsGeneralLinkOpen(false)
+          setLinkingRestOrderId(null)
+        }}
+        onLinkSuccess={() => {
+          setIsGeneralLinkOpen(false)
+          setLinkingRestOrderId(null)
+          startTransition(async () => {
+            const [newOrders, newAnalytics] = await Promise.all([
+              getRestaurantOrders({ dateFilter }),
+              getRestaurantAnalytics(dateFilter)
+            ])
+            setOrders(newOrders)
+            setAnalytics(newAnalytics)
+          })
+        }}
       />
     </div>
   )

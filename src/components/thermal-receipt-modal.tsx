@@ -11,6 +11,12 @@ export interface ReceiptItem {
   totalPrice: number
 }
 
+export interface ReceiptSection {
+  title: string
+  items: ReceiptItem[]
+  subtotal: number
+}
+
 export interface ReceiptData {
   title: string
   orderNumber: string
@@ -21,6 +27,11 @@ export interface ReceiptData {
   items: ReceiptItem[]
   totalAmount: number
   paymentStatus?: string
+  sections?: ReceiptSection[]
+  linkedOrderNumbers?: {
+    restaurant?: string
+    bar?: string
+  }
 }
 
 interface ThermalReceiptModalProps {
@@ -47,19 +58,29 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
       })),
       totalAmount: data.totalAmount,
       paymentStatus: data.paymentStatus,
+      sections: data.sections?.map(sec => ({
+        title: sec.title,
+        items: sec.items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          totalPrice: item.totalPrice
+        })),
+        subtotal: sec.subtotal
+      })),
+      linkedOrderNumbers: data.linkedOrderNumbers
     })
     printReceipt(html)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-6 shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-6 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         
         {/* Screen Header Controls */}
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10">
+        <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
             <CheckCircle2 className="w-5 h-5" />
-            Order Completed
+            Order Completed / Receipt Preview
           </div>
           <button 
             onClick={onClose}
@@ -69,8 +90,8 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
           </button>
         </div>
 
-        {/* 80mm RECEIPT PREVIEW */}
-        <div className="bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl">
+        {/* 80mm RECEIPT PREVIEW (Scrollable) */}
+        <div className="bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl overflow-y-auto flex-1 custom-scrollbar">
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-black/30">
             <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>
@@ -90,6 +111,14 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
               <span className="text-zinc-600">Order #:</span>
               <span className="font-bold">#{data.orderNumber}</span>
             </div>
+            {data.linkedOrderNumbers?.restaurant && data.linkedOrderNumbers?.bar && (
+              <div className="flex justify-between text-[10px]">
+                <span className="text-zinc-600">Ref:</span>
+                <span className="font-bold text-zinc-800">
+                  Kitchen: #{data.linkedOrderNumbers.restaurant} | Bar: #{data.linkedOrderNumbers.bar}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-zinc-600">Date:</span>
               <span>{data.date}</span>
@@ -114,28 +143,59 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
             )}
           </div>
 
-          {/* Items Table */}
-          <div className="py-3 border-b border-dashed border-black/30">
-            <div className="grid grid-cols-12 font-bold text-[10px] uppercase text-zinc-600 pb-1 mb-1 border-b border-black/10">
-              <span className="col-span-6">Item</span>
-              <span className="col-span-2 text-center">Qty</span>
-              <span className="col-span-4 text-right">Amount</span>
-            </div>
-            <div className="space-y-1.5 pt-1">
-              {data.items.map((item, index) => (
-                <div key={index} className="grid grid-cols-12 text-[11px] leading-tight">
-                  <span className="col-span-6 font-medium truncate pr-1">{item.name}</span>
-                  <span className="col-span-2 text-center">{item.quantity}</span>
-                  <span className="col-span-4 text-right font-bold">#{item.totalPrice.toLocaleString()}</span>
+          {/* Items or Sections */}
+          {data.sections && data.sections.length > 0 ? (
+            <div className="py-2 space-y-3 border-b border-dashed border-black/30">
+              {data.sections.map((section, sIdx) => (
+                <div key={sIdx} className="space-y-1 pb-2 border-b border-dashed border-black/15 last:border-none last:pb-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider bg-zinc-100 px-1.5 py-0.5 rounded inline-block text-zinc-800">
+                    {section.title}
+                  </div>
+                  <div className="grid grid-cols-12 font-bold text-[9px] uppercase text-zinc-500 pb-0.5 border-b border-black/10">
+                    <span className="col-span-6">Item</span>
+                    <span className="col-span-2 text-center">Qty</span>
+                    <span className="col-span-4 text-right">Amount</span>
+                  </div>
+                  <div className="space-y-1 pt-0.5">
+                    {section.items.map((item, itemIdx) => (
+                      <div key={itemIdx} className="grid grid-cols-12 text-[11px] leading-tight">
+                        <span className="col-span-6 font-medium truncate pr-1">{item.name}</span>
+                        <span className="col-span-2 text-center">{item.quantity}</span>
+                        <span className="col-span-4 text-right font-bold">#{item.totalPrice.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-[11px] font-bold pt-1 border-t border-dotted border-black/20 text-zinc-700">
+                    <span>{section.title} Subtotal:</span>
+                    <span>#{section.subtotal.toLocaleString()}</span>
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          ) : (
+            /* Standard Items Table */
+            <div className="py-3 border-b border-dashed border-black/30">
+              <div className="grid grid-cols-12 font-bold text-[10px] uppercase text-zinc-600 pb-1 mb-1 border-b border-black/10">
+                <span className="col-span-6">Item</span>
+                <span className="col-span-2 text-center">Qty</span>
+                <span className="col-span-4 text-right">Amount</span>
+              </div>
+              <div className="space-y-1.5 pt-1">
+                {data.items.map((item, index) => (
+                  <div key={index} className="grid grid-cols-12 text-[11px] leading-tight">
+                    <span className="col-span-6 font-medium truncate pr-1">{item.name}</span>
+                    <span className="col-span-2 text-center">{item.quantity}</span>
+                    <span className="col-span-4 text-right font-bold">#{item.totalPrice.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Totals */}
           <div className="py-3 space-y-1.5 text-[11px]">
             <div className="flex justify-between text-sm font-bold pt-1 border-t border-black">
-              <span>TOTAL:</span>
+              <span>TOTAL DUE:</span>
               <span>#{data.totalAmount.toLocaleString()}</span>
             </div>
             {data.paymentStatus && (

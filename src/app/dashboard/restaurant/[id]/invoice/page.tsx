@@ -2,7 +2,7 @@ import { getRestaurantOrderById } from "@/app/actions/restaurant-actions"
 import { notFound } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Link2 } from "lucide-react"
 import { PrintButton } from "@/app/dashboard/laundry/[id]/invoice/print-button"
 import { buildReceiptHtml } from "@/lib/print-receipt"
 
@@ -53,6 +53,25 @@ export default async function RestaurantInvoicePage({ params }: { params: Promis
         </Link>
         <PrintButton receiptHtml={receiptHtml} />
       </div>
+
+      {/* Linked Combined Receipt Notice */}
+      {order.linkedBarOrder && (
+        <div className="max-w-[380px] mx-auto mb-4 p-3 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-primary shrink-0" />
+            <div>
+              <p className="font-bold text-white">Linked with Bar #{order.linkedBarOrder.id.slice(-6).toUpperCase()}</p>
+              <p className="text-zinc-400 text-[10px]">Combined: ₦{(order.totalAmount + order.linkedBarOrder.totalAmount).toLocaleString()}</p>
+            </div>
+          </div>
+          <Link
+            href={`/dashboard/combined-invoice?restaurantId=${order.id}&barId=${order.linkedBarOrder.id}`}
+            className="px-2.5 py-1.5 rounded-lg bg-primary text-black font-bold text-[11px] hover:bg-primary/90 transition-colors"
+          >
+            Combined Receipt
+          </Link>
+        </div>
+      )}
 
       {/* 80mm THERMAL RECEIPT PREVIEW (Screen Only) */}
       <div className="max-w-[380px] mx-auto bg-white text-black p-6 font-mono text-xs shadow-2xl rounded-2xl">

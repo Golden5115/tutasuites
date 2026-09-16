@@ -80,6 +80,30 @@ export async function printReceipt(receiptHtml: string) {
           padding: 12px 0;
           border-bottom: 2px dashed #999;
         }
+        .receipt-section {
+          margin-bottom: 12px;
+          padding-bottom: 8px;
+          border-bottom: 2px dashed #aaa;
+        }
+        .section-title {
+          font-size: 22px;
+          font-weight: bold;
+          text-transform: uppercase;
+          background: #f0f0f0;
+          padding: 4px 10px;
+          margin-bottom: 8px;
+          border-radius: 4px;
+          display: inline-block;
+        }
+        .section-subtotal {
+          display: flex;
+          justify-content: space-between;
+          font-size: 24px;
+          font-weight: bold;
+          padding: 6px 0;
+          margin-top: 6px;
+          border-top: 1px dashed #ccc;
+        }
         .items-header {
           display: flex;
           font-weight: bold;
@@ -349,22 +373,60 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   
   commands.push('------------------------------------------\n')
   
-  // Items Header: Bold
-  commands.push('\x1BE\x01')
-  commands.push(formatThreeColumns('Item', 'Qty', 'Amount') + '\n')
-  commands.push('\x1BE\x00')
-  commands.push('------------------------------------------\n')
-  
-  // Item Rows
-  const itemRows = doc.querySelectorAll('.item-row')
-  itemRows.forEach(row => {
-    const name = row.querySelector('.col-item')?.textContent?.trim() || ''
-    const qty = row.querySelector('.col-qty')?.textContent?.trim() || ''
-    const amt = row.querySelector('.col-amt')?.textContent?.trim() || ''
-    commands.push(formatThreeColumns(name, qty, amt) + '\n')
-  })
-  
-  commands.push('------------------------------------------\n')
+  // Sectional or standard items
+  const receiptSections = doc.querySelectorAll('.receipt-section')
+  if (receiptSections.length > 0) {
+    receiptSections.forEach(section => {
+      const sectionTitle = section.querySelector('.section-title')?.textContent?.trim() || ''
+      if (sectionTitle) {
+        commands.push('\x1Ba\x01')
+        commands.push('\x1BE\x01')
+        commands.push(`\n--- ${sectionTitle} ---\n`)
+        commands.push('\x1BE\x00')
+        commands.push('\x1Ba\x00')
+      }
+
+      commands.push('\x1BE\x01')
+      commands.push(formatThreeColumns('Item', 'Qty', 'Amount') + '\n')
+      commands.push('\x1BE\x00')
+      commands.push('------------------------------------------\n')
+
+      const sectionItems = section.querySelectorAll('.item-row')
+      sectionItems.forEach(row => {
+        const name = row.querySelector('.col-item')?.textContent?.trim() || ''
+        const qty = row.querySelector('.col-qty')?.textContent?.trim() || ''
+        const amt = row.querySelector('.col-amt')?.textContent?.trim() || ''
+        commands.push(formatThreeColumns(name, qty, amt) + '\n')
+      })
+
+      const subtotalRow = section.querySelector('.section-subtotal')
+      if (subtotalRow) {
+        const spans = subtotalRow.querySelectorAll('span')
+        const label = spans[0]?.textContent?.trim() || 'Subtotal:'
+        const amt = spans[1]?.textContent?.trim() || ''
+        commands.push(' - - - - - - - - - - - - - - - - - - - - -\n')
+        commands.push(formatTwoColumns(label, amt) + '\n')
+      }
+      commands.push('------------------------------------------\n')
+    })
+  } else {
+    // Standard items
+    commands.push('\x1BE\x01')
+    commands.push(formatThreeColumns('Item', 'Qty', 'Amount') + '\n')
+    commands.push('\x1BE\x00')
+    commands.push('------------------------------------------\n')
+    
+    // Item Rows
+    const itemRows = doc.querySelectorAll('.item-row')
+    itemRows.forEach(row => {
+      const name = row.querySelector('.col-item')?.textContent?.trim() || ''
+      const qty = row.querySelector('.col-qty')?.textContent?.trim() || ''
+      const amt = row.querySelector('.col-amt')?.textContent?.trim() || ''
+      commands.push(formatThreeColumns(name, qty, amt) + '\n')
+    })
+    
+    commands.push('------------------------------------------\n')
+  }
   
   // Total Section
   const totalRow = doc.querySelector('.total-row')
@@ -440,6 +502,12 @@ function fallbackPrint(htmlString: string) {
 /**
  * Generates receipt HTML string from structured data.
  */
+export interface PrintReceiptSection {
+  title: string
+  items: { name: string; quantity: number; totalPrice: number }[]
+  subtotal: number
+}
+
 export interface PrintReceiptData {
   title: string
   orderNumber: string
@@ -450,22 +518,74 @@ export interface PrintReceiptData {
   items: { name: string; quantity: number; totalPrice: number }[]
   totalAmount: number
   paymentStatus?: string
+  sections?: PrintReceiptSection[]
+  linkedOrderNumbers?: {
+    restaurant?: string
+    bar?: string
+  }
 }
 
 export function buildReceiptHtml(data: PrintReceiptData): string {
-  const itemsHtml = data.items
-    .map(
-      (item) => `
-      <div class="item-row">
-        <span class="col-item">${item.name}</span>
-        <span class="col-qty">${item.quantity}</span>
-        <span class="col-amt">#${item.totalPrice.toLocaleString()}</span>
-      </div>`
-    )
-    .join('')
+  let contentHtml = ''
+
+  if (data.sections && data.sections.length > 0) {
+    contentHtml = data.sections
+      .map(
+        (sec) => `
+        <div class="receipt-section">
+          <div class="section-title">${sec.title}</div>
+          <div class="items-header">
+            <span class="col-item">Item</span>
+            <span class="col-qty">Qty</span>
+            <span class="col-amt">Amount</span>
+          </div>
+          ${sec.items
+            .map(
+              (item) => `
+              <div class="item-row">
+                <span class="col-item">${item.name}</span>
+                <span class="col-qty">${item.quantity}</span>
+                <span class="col-amt">#${item.totalPrice.toLocaleString()}</span>
+              </div>`
+            )
+            .join('')}
+          <div class="section-subtotal">
+            <span>${sec.title} Subtotal:</span>
+            <span>#${sec.subtotal.toLocaleString()}</span>
+          </div>
+        </div>
+      `
+      )
+      .join('')
+  } else {
+    const itemsHtml = data.items
+      .map(
+        (item) => `
+        <div class="item-row">
+          <span class="col-item">${item.name}</span>
+          <span class="col-qty">${item.quantity}</span>
+          <span class="col-amt">#${item.totalPrice.toLocaleString()}</span>
+        </div>`
+      )
+      .join('')
+
+    contentHtml = `
+      <div class="items-section">
+        <div class="items-header">
+          <span class="col-item">Item</span>
+          <span class="col-qty">Qty</span>
+          <span class="col-amt">Amount</span>
+        </div>
+        ${itemsHtml}
+      </div>
+    `
+  }
 
   const metaRows = [
     `<div class="meta-row"><span class="label">Order #:</span><span class="value">#${data.orderNumber}</span></div>`,
+    data.linkedOrderNumbers?.restaurant && data.linkedOrderNumbers?.bar
+      ? `<div class="meta-row"><span class="label">Ref:</span><span class="value">Kitchen: #${data.linkedOrderNumbers.restaurant} | Bar: #${data.linkedOrderNumbers.bar}</span></div>`
+      : '',
     `<div class="meta-row"><span class="label">Date:</span><span class="value">${data.date}</span></div>`,
     data.orderType
       ? `<div class="meta-row"><span class="label">Type:</span><span class="value">${data.orderType}</span></div>`
@@ -498,14 +618,7 @@ export function buildReceiptHtml(data: PrintReceiptData): string {
       ${metaRows}
     </div>
 
-    <div class="items-section">
-      <div class="items-header">
-        <span class="col-item">Item</span>
-        <span class="col-qty">Qty</span>
-        <span class="col-amt">Amount</span>
-      </div>
-      ${itemsHtml}
-    </div>
+    ${contentHtml}
 
     <div class="total-section">
       <div class="total-row">

@@ -9,6 +9,7 @@ import { ExtendStayForm } from "@/components/extend-stay-form"
 import { CheckOutButton } from "@/components/check-out-button"
 import { AddChargeForm } from "@/components/add-charge-form"
 import { MarkCleanButton } from "@/components/mark-clean-button"
+import { DashboardLinkSalesCard } from "@/components/dashboard-link-sales-card"
 
 export default async function Dashboard() {
   const availableRooms = await getAvailableRooms()
@@ -78,6 +79,11 @@ export default async function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Linked Sales & Combined Receipts Card */}
+      <div className="animate-slide-up-delay-1">
+        <DashboardLinkSalesCard />
       </div>
 
       {/* Main Grid */}

@@ -140,6 +140,13 @@ export async function getRestaurantOrders(options?: { dateFilter?: string; limit
       },
       items: {
         include: { item: true }
+      },
+      linkedBarOrder: {
+        include: {
+          items: {
+            include: { item: true }
+          }
+        }
       }
     }
   })
@@ -154,6 +161,13 @@ export async function getRestaurantOrderById(id: string) {
       },
       items: {
         include: { item: true }
+      },
+      linkedBarOrder: {
+        include: {
+          items: {
+            include: { item: true }
+          }
+        }
       }
     }
   })

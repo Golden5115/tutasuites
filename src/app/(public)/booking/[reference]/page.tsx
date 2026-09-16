@@ -157,10 +157,18 @@ export default async function BookingDetailPage({ params, searchParams }: Props)
         {/* Actions */}
         <div className="h-px bg-white/10" />
         <div className="flex flex-col sm:flex-row gap-3">
+          {reservation.paymentStatus === "PAID" && (
+            <Link
+              href={`/book/confirmation?ref=${reservation.bookingReference}`}
+              className="flex-1 py-3 rounded-xl bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-xs text-center hover:bg-[#F3E5AB] transition-all flex items-center justify-center gap-2"
+            >
+              View / Download Official Invoice
+            </Link>
+          )}
           {reservation.paymentStatus === "UNPAID" && reservation.status !== "CANCELLED" && (
             <Link
               href={`/api/paystack/initialize?reservationId=${reservation.id}`}
-              className="flex-1 py-3 rounded-xl bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm text-center hover:bg-[#F3E5AB] transition-all flex items-center justify-center gap-2"
+              className="flex-1 py-3 rounded-xl bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-xs text-center hover:bg-[#F3E5AB] transition-all flex items-center justify-center gap-2"
             >
               <CreditCard className="w-4 h-4" /> Pay Now
             </Link>

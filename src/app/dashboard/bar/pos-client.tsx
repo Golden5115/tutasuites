@@ -5,10 +5,11 @@ import { createBarOrder } from "@/app/actions/bar-actions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Minus, Plus, ShoppingCart, Trash2, Loader2, Wine, User, BedDouble, ChevronRight, X as XIcon } from "lucide-react"
+import { Minus, Plus, ShoppingCart, Trash2, Loader2, Wine, User, BedDouble, ChevronRight, X as XIcon, Link2 } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 
 import { ThermalReceiptModal, ReceiptData } from "@/components/thermal-receipt-modal"
+import { LinkSalesDialog } from "@/components/link-sales-dialog"
 
 interface OrderTab {
   id: string
@@ -32,6 +33,8 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
   const [success, setSuccess] = useState(false)
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false)
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false)
+  const [lastCreatedOrderId, setLastCreatedOrderId] = useState<string | null>(null)
 
   // Current active tab object
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0]
@@ -138,6 +141,9 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
       if (res.error) {
         setError(res.error)
       } else {
+        if (res.orderId) {
+          setLastCreatedOrderId(res.orderId)
+        }
         const roomObj = occupiedRooms.find(r => r.id === selectedRoomId)
         setReceiptData({
           title: "MINI LOUNGE BAR",
@@ -315,6 +321,13 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
         >
           <Plus className="w-3.5 h-3.5" /> + New Order Tab
         </button>
+
+        <button
+          onClick={() => setIsLinkDialogOpen(true)}
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all shrink-0 ml-auto"
+        >
+          <Link2 className="w-3.5 h-3.5" /> Link with Food Order
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-12 gap-6">
@@ -455,6 +468,14 @@ export function POSClient({ catalog, occupiedRooms }: { catalog: any[], occupied
         isOpen={!!receiptData}
         onClose={() => setReceiptData(null)}
         data={receiptData}
+      />
+
+      {/* Link Sales Dialog */}
+      <LinkSalesDialog
+        isOpen={isLinkDialogOpen}
+        initialBarOrderId={lastCreatedOrderId || undefined}
+        onClose={() => setIsLinkDialogOpen(false)}
+        onLinkSuccess={() => setIsLinkDialogOpen(false)}
       />
     </div>
   )

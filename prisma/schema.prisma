@@ -195,16 +195,19 @@ model BarItem {
 }
 
 model BarOrder {
-  id            String   @id @default(cuid())
-  customerName  String?  
-  isWalkIn      Boolean  @default(true)
-  reservationId String?
-  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
-  status        String   @default("COMPLETED") 
-  totalAmount   Float
-  items         BarOrderItem[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                      String           @id @default(cuid())
+  customerName            String?  
+  isWalkIn                Boolean          @default(true)
+  reservationId           String?
+  reservation             Reservation?     @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  status                  String           @default("COMPLETED") 
+  totalAmount             Float
+  items                   BarOrderItem[]
+  linkedRestaurantOrderId String?
+  linkedRestaurantOrder   RestaurantOrder? @relation("BarRestaurantLink", fields: [linkedRestaurantOrderId], references: [id], onDelete: SetNull)
+  restaurantOrdersLinked  RestaurantOrder[] @relation("RestaurantBarLink")
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
 }
 
 model BarOrderItem {
@@ -231,16 +234,19 @@ model RestaurantItem {
 }
 
 model RestaurantOrder {
-  id            String   @id @default(cuid())
-  customerName  String?  
-  isWalkIn      Boolean  @default(true)
-  reservationId String?
-  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
-  status        String   @default("COMPLETED") 
-  totalAmount   Float
-  items         RestaurantOrderItem[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                      String                @id @default(cuid())
+  customerName            String?  
+  isWalkIn                Boolean               @default(true)
+  reservationId           String?
+  reservation             Reservation?          @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  status                  String                @default("COMPLETED") 
+  totalAmount             Float
+  items                   RestaurantOrderItem[]
+  linkedBarOrderId        String?
+  linkedBarOrder          BarOrder?             @relation("RestaurantBarLink", fields: [linkedBarOrderId], references: [id], onDelete: SetNull)
+  barOrdersLinked         BarOrder[]            @relation("BarRestaurantLink")
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
 }
 
 model RestaurantOrderItem {
