@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { DesktopPosCard } from "@/components/desktop-pos-card"
 
 async function updateSettings(formData: FormData) {
   "use server"
@@ -50,6 +51,8 @@ export default async function SettingsPage() {
           Configure pricing, tax, service charges, and hotel information.
         </p>
       </div>
+
+      <DesktopPosCard />
 
       <form action={updateSettings} key={settings.updatedAt?.getTime()}>
         <input type="hidden" name="id" value={settings.id} />

@@ -210,6 +210,26 @@ export async function printReceipt(receiptHtml: string) {
     </html>
   `
 
+  // 1. DESKTOP CLIENT MODE: Native, instant silent thermal printing (NO QZ Tray required)
+  if (typeof window !== 'undefined' && (window as any).electronAPI?.isDesktop) {
+    try {
+      console.log('Printing via Tuta Suites Native Desktop POS (Direct Xprinter)...')
+      const result = await (window as any).electronAPI.printReceipt(fullHtml, {
+        paperWidth: 80,
+        silent: true,
+      })
+      if (result && result.success) {
+        console.log(`Receipt successfully printed silently to: ${result.printer}`)
+        return { success: true, printer: result.printer }
+      } else {
+        console.warn('Desktop native print returned error, trying fallback:', result?.error)
+      }
+    } catch (desktopError) {
+      console.error('Desktop native printing failed, falling back:', desktopError)
+    }
+  }
+
+  // 2. WEB BROWSER MODE: Fallback to QZ Tray or browser dialog
   try {
     // Dynamically import qz-tray to avoid SSR issues
     const qz = await import('qz-tray')

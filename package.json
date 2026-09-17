@@ -1,13 +1,16 @@
 {
   "name": "tutasuites",
   "version": "0.1.0",
-  "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "electron": "electron electron/main.js",
+    "electron:dev": "electron electron/main.js --dev",
+    "electron:dist": "electron-builder --project electron"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
@@ -37,6 +40,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^17.4.2",
+    "electron": "44.4.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "prisma": "^7.8.0",
