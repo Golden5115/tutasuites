@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, Menu, shell, dialog } = require('electron');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -257,7 +258,54 @@ ipcMain.handle('config:save', (event, newConfig) => {
   return saveConfig(newConfig);
 });
 
-// 4. Native Silent Thermal Receipt Printing
+// 4. Direct Raw ESC/POS Thermal Printing (Instant, Native, 100% Spooler Mode)
+ipcMain.handle('print:raw', async (event, { rawCommands, printerName }) => {
+  try {
+    const config = loadConfig();
+    const printers = mainWindow ? await mainWindow.webContents.getPrintersAsync() : [];
+    let targetPrinter = printerName || config.selectedPrinter;
+
+    if (!targetPrinter || !printers.some((p) => p.name === targetPrinter)) {
+      const match = printers.find((p) => /xprinter|xp-|pos|thermal|receipt/i.test(p.name));
+      targetPrinter = match ? match.name : (printers.find((p) => p.isDefault)?.name || (printers[0] ? printers[0].name : 'Xprinter XP-Q301F'));
+    }
+
+    console.log(`[Desktop POS] Sending Raw ESC/POS directly to: ${targetPrinter}`);
+
+    let buffer;
+    if (Array.isArray(rawCommands)) {
+      const parts = rawCommands.filter((x) => typeof x === 'string').join('');
+      buffer = Buffer.from(parts, 'binary');
+    } else if (typeof rawCommands === 'string') {
+      buffer = Buffer.from(rawCommands, 'binary');
+    } else {
+      buffer = Buffer.from(String(rawCommands), 'binary');
+    }
+
+    const tempFile = path.join(app.getPath('temp'), `tuta-receipt-${Date.now()}.bin`);
+    fs.writeFileSync(tempFile, buffer);
+
+    const rawPrinterExe = path.join(__dirname, 'raw-printer.exe');
+
+    return new Promise((resolve) => {
+      execFile(rawPrinterExe, [targetPrinter, tempFile], (err, stdout, stderr) => {
+        try { fs.unlinkSync(tempFile); } catch (e) {}
+        if (err) {
+          console.error('[Desktop POS] raw-printer.exe error:', err, stderr);
+          resolve({ success: false, error: stderr || err.message });
+        } else {
+          console.log('[Desktop POS] Raw print output:', stdout.trim());
+          resolve({ success: true, printer: targetPrinter });
+        }
+      });
+    });
+  } catch (err) {
+    console.error('[Desktop POS] print:raw exception:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// 5. HTML Silent Thermal Receipt Printing (Fallback)
 ipcMain.handle('print:receipt', async (event, { html, printerName, paperWidth }) => {
   const config = loadConfig();
   const width = paperWidth || config.paperWidth || 80;

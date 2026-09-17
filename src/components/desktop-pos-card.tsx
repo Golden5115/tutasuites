@@ -68,29 +68,30 @@ export function DesktopPosCard() {
     setLoading(true)
     setTestPrintStatus("Printing test receipt...")
 
-    const testHtml = `
-      <div style="text-align:center; padding:10px 0; font-family:monospace;">
-        <h2 style="font-size:24px; font-weight:bold; margin-bottom:4px;">TUTA SUITES</h2>
-        <div style="font-size:16px;">Direct POS Thermal Test</div>
-        <div style="margin:8px 0; border-bottom:1px dashed #000;"></div>
-        <div style="font-size:14px; text-align:left;">
-          <div>Printer: ${selectedPrinter || "Auto-detected"}</div>
-          <div>Mode: Native Desktop (No QZ Tray)</div>
-          <div>Date: ${new Date().toLocaleString()}</div>
-          <div>Status: Connected & Ready</div>
-        </div>
-        <div style="margin:8px 0; border-bottom:1px dashed #000;"></div>
-        <div style="font-weight:bold; font-size:16px; padding:6px 0;">TEST PRINT SUCCESSFUL!</div>
-        <div style="font-size:12px; color:#555;">Tuta Suites Desktop POS Terminal</div>
-      </div>
-    `
+    const escposTest = [
+      '\x1B@',
+      '\x1Ba\x01',
+      '\x1B!\x30',
+      'TUTA SUITES\n',
+      '\x1B!\x00',
+      'DIRECT POS HARDWARE TEST\n',
+      'No QZ Tray - Pure Native Spooler\n',
+      '------------------------------------------\n',
+      '\x1Ba\x00',
+      `Printer: ${selectedPrinter || 'Xprinter (Auto-detected)'}\n`,
+      `Date: ${new Date().toLocaleString()}\n`,
+      'Status: Connected & Operational OK\n',
+      '------------------------------------------\n',
+      '\x1Ba\x01',
+      '\x1BE\x01',
+      'TEST PRINT SUCCESSFUL!\n',
+      '\x1BE\x00',
+      'Tuta Suites Desktop Terminal\n\n\n\n',
+      '\x1DV\x41\x03'
+    ].join('')
 
     try {
-      const res = await (window as any).electronAPI.printReceipt(testHtml, {
-        printerName: selectedPrinter,
-        silent: true,
-        paperWidth: 80,
-      })
+      const res = await (window as any).electronAPI.printRaw(escposTest, selectedPrinter)
       if (res?.success) {
         setTestPrintStatus(`Printed successfully to ${res.printer || selectedPrinter}`)
       } else {

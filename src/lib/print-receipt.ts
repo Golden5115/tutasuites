@@ -210,22 +210,21 @@ export async function printReceipt(receiptHtml: string) {
     </html>
   `
 
-  // 1. DESKTOP CLIENT MODE: Native, instant silent thermal printing (NO QZ Tray required)
+  // 1. DESKTOP CLIENT MODE: Direct Raw ESC/POS printing (NO QZ Tray, NO driver rasterization, NO Chinese text)
   if (typeof window !== 'undefined' && (window as any).electronAPI?.isDesktop) {
     try {
-      console.log('Printing via Tuta Suites Native Desktop POS (Direct Xprinter)...')
-      const result = await (window as any).electronAPI.printReceipt(fullHtml, {
-        paperWidth: 80,
-        silent: true,
-      })
+      console.log('Printing via Tuta Suites Native Desktop POS (Direct Raw ESC/POS)...')
+      const sanitizedHtml = fullHtml.replaceAll('₦', '#')
+      const escposCommands = convertHtmlToEscPos(sanitizedHtml)
+      const rawText = escposCommands.join('')
+      
+      const result = await (window as any).electronAPI.printRaw(rawText)
       if (result && result.success) {
-        console.log(`Receipt successfully printed silently to: ${result.printer}`)
+        console.log(`Receipt successfully printed to: ${result.printer}`)
         return { success: true, printer: result.printer }
-      } else {
-        console.warn('Desktop native print returned error, trying fallback:', result?.error)
       }
     } catch (desktopError) {
-      console.error('Desktop native printing failed, falling back:', desktopError)
+      console.error('Desktop native raw printing failed, falling back:', desktopError)
     }
   }
 

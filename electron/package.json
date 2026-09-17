@@ -10,6 +10,7 @@
     "appId": "com.tutasuites.pos",
     "productName": "Tuta Suites POS",
     "copyright": "Copyright © 2026 Tuta Suites",
+    "asar": false,
     "directories": {
       "output": "../dist-electron"
     },
