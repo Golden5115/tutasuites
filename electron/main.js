@@ -342,8 +342,6 @@ ipcMain.handle('print:receipt', async (event, { html, printerName, paperWidth })
     console.log(`Printing silently to: ${targetPrinter}`);
 
     // Micron size: 1mm = 1,000 microns. 80mm = 80,000 microns. Continuous roll length = 300,000 microns.
-    const micronWidth = width === 58 ? 58000 : 80000;
-
     return new Promise((resolve) => {
       printWin.webContents.print(
         {
@@ -352,10 +350,6 @@ ipcMain.handle('print:receipt', async (event, { html, printerName, paperWidth })
           deviceName: targetPrinter,
           margins: {
             marginType: 'none',
-          },
-          pageSize: {
-            width: micronWidth,
-            height: 300000,
           },
         },
         (success, failureReason) => {
@@ -386,52 +380,7 @@ app.whenReady().then(() => {
   });
 });
 
-// Intercept any fallback print window, print silently directly to Xprinter, and close
-app.on('browser-window-created', (event, childWin) => {
-  if (childWin !== mainWindow) {
-    childWin.hide(); // Keep completely invisible
-
-    childWin.webContents.on('dom-ready', () => {
-      setTimeout(async () => {
-        if (childWin.isDestroyed()) return;
-        try {
-          const printers = await childWin.webContents.getPrintersAsync();
-          const config = loadConfig();
-          let targetPrinter = config.selectedPrinter;
-
-          if (!targetPrinter || !printers.some((p) => p.name === targetPrinter)) {
-            const autoMatch = printers.find((p) =>
-              /xprinter|xp-|pos|thermal|receipt|58mm|80mm/i.test(p.name)
-            );
-            targetPrinter = autoMatch ? autoMatch.name : (printers.find((p) => p.isDefault)?.name || printers[0]?.name);
-          }
-
-          if (targetPrinter) {
-            console.log(`[Desktop POS] Intercepted receipt popup, printing silently to: ${targetPrinter}`);
-            childWin.webContents.print(
-              {
-                silent: true,
-                printBackground: true,
-                deviceName: targetPrinter,
-                margins: { marginType: 'none' },
-                pageSize: { width: 80000, height: 300000 },
-              },
-              () => {
-                if (!childWin.isDestroyed()) childWin.close();
-              }
-            );
-          } else {
-            if (!childWin.isDestroyed()) childWin.close();
-          }
-        } catch (err) {
-          console.error('Child print error:', err);
-          if (!childWin.isDestroyed()) childWin.close();
-        }
-      }, 300);
-    });
-  }
-});
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
