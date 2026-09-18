@@ -42,10 +42,22 @@ export function CreateStaffForm() {
           <div className="grid gap-2">
             <Label>Accessible Modules</Label>
             <div className="flex flex-col gap-2 rounded-md border p-4">
-              {['RESERVATIONS', 'ROOMS', 'CALENDAR', 'HOUSEKEEPING', 'LAUNDRY', 'BAR', 'RESTAURANT', 'FINANCE', 'GUESTS', 'SETTINGS', 'STAFF'].map(mod => (
-                <label key={mod} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" name="modules" value={mod} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
-                  {mod.charAt(0) + mod.slice(1).toLowerCase()}
+              {[
+                { key: 'RESERVATIONS', label: 'Reservations' },
+                { key: 'ROOMS', label: 'Rooms' },
+                { key: 'CALENDAR', label: 'Calendar' },
+                { key: 'HOUSEKEEPING', label: 'Housekeeping' },
+                { key: 'LAUNDRY', label: 'Laundry' },
+                { key: 'RESTAURANT', label: 'Restaurant & Bar (POS)' },
+                { key: 'EXPENSES', label: 'Expenses (Log operating expenses only — No company revenue/profit access)' },
+                { key: 'FINANCE', label: 'Finance & Analytics (Full company revenue, profit/loss, and financial metrics)' },
+                { key: 'GUESTS', label: 'Guests' },
+                { key: 'SETTINGS', label: 'Settings' },
+                { key: 'STAFF', label: 'Staff Management' },
+              ].map(item => (
+                <label key={item.key} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="modules" value={item.key} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                  <span>{item.label}</span>
                 </label>
               ))}
             </div>

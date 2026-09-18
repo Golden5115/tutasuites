@@ -1,5 +1,8 @@
 "use server"
 
+import fs from "fs"
+import path from "path"
+import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import { getDateBounds } from "@/lib/date-utils"
@@ -441,5 +444,259 @@ export async function getUnifiedSalesHistory(options?: { dateFilter?: string }) 
       walkInRevenue,
       roomChargeRevenue,
     },
+  }
+}
+
+const DRAFTS_DIR = path.join(process.cwd(), ".pos-drafts")
+
+export interface PendingOrderItem {
+  itemId: string
+  name: string
+  catalogType: "RESTAURANT" | "BAR"
+  category: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+}
+
+export interface PendingOrderEntry {
+  staffId: string
+  staffName: string
+  staffEmail: string
+  staffRole: string
+  tabId: string
+  orderName: string
+  orderType: "WALKIN" | "ROOM"
+  customerName: string
+  selectedRoomId: string
+  roomNumber?: string
+  totalItemsCount: number
+  items: PendingOrderItem[]
+  foodSubtotal: number
+  drinksSubtotal: number
+  grandTotal: number
+  isSaved?: boolean
+  savedAt?: string
+  updatedAt: string
+  rawTab: any
+}
+
+/**
+ * Save in-progress order drafts for the authenticated user.
+ * Stores staff metadata so Admins can audit all active pending orders across the property.
+ */
+export async function saveUserPOSDrafts(tabs: any[]) {
+  const session = await auth()
+  const user = session?.user as any
+  const userId = user?.id || user?.email
+  if (!userId) return { success: false, error: "Unauthorized" }
+
+  try {
+    if (!fs.existsSync(DRAFTS_DIR)) {
+      fs.mkdirSync(DRAFTS_DIR, { recursive: true })
+    }
+    const safeId = String(userId).replace(/[^a-zA-Z0-9_-]/g, "_")
+    const filePath = path.join(DRAFTS_DIR, `${safeId}.json`)
+
+    const data = {
+      userId: String(userId),
+      userName: user.name || user.email || "Staff",
+      userEmail: user.email || "",
+      userRole: user.role || "FRONT_DESK",
+      updatedAt: new Date().toISOString(),
+      tabs,
+    }
+
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8")
+    return { success: true }
+  } catch (err: any) {
+    console.error("Failed to save POS drafts:", err)
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * Retrieve in-progress order drafts for the authenticated user.
+ * Isolated strictly to the requesting user.
+ */
+export async function getUserPOSDrafts() {
+  const session = await auth()
+  const user = session?.user as any
+  const userId = user?.id || user?.email
+  if (!userId) return { tabs: [] }
+
+  try {
+    const safeId = String(userId).replace(/[^a-zA-Z0-9_-]/g, "_")
+    const filePath = path.join(DRAFTS_DIR, `${safeId}.json`)
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, "utf8")
+      const parsed = JSON.parse(content || "{}")
+      const tabs = Array.isArray(parsed) ? parsed : (parsed.tabs || [])
+      return { tabs }
+    }
+  } catch (err: any) {
+    console.error("Failed to read POS drafts:", err)
+  }
+  return { tabs: [] }
+}
+
+/**
+ * Clear in-progress order drafts for the authenticated user when completed.
+ */
+export async function clearUserPOSDrafts() {
+  const session = await auth()
+  const user = session?.user as any
+  const userId = user?.id || user?.email
+  if (!userId) return { success: false }
+
+  try {
+    const safeId = String(userId).replace(/[^a-zA-Z0-9_-]/g, "_")
+    const filePath = path.join(DRAFTS_DIR, `${safeId}.json`)
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+    return { success: true }
+  } catch (err) {
+    return { success: false }
+  }
+}
+
+/**
+ * Retrieve ALL active in-progress and held orders across all staff users.
+ * Strictly available to ADMIN users.
+ */
+export async function getAllPendingPOSOrders(): Promise<{ pendingOrders: PendingOrderEntry[]; error?: string }> {
+  const session = await auth()
+  const user = session?.user as any
+  if (!session || user?.role !== "ADMIN") {
+    return { pendingOrders: [], error: "Admin authorization required." }
+  }
+
+  try {
+    const pendingOrders: PendingOrderEntry[] = []
+
+    // Fetch occupied rooms for room number lookup
+    const occupiedRooms = await prisma.room.findMany({
+      select: { id: true, number: true },
+    })
+    const roomMap = new Map(occupiedRooms.map((r) => [r.id, r.number]))
+
+    if (fs.existsSync(DRAFTS_DIR)) {
+      const files = fs.readdirSync(DRAFTS_DIR).filter((f) => f.endsWith(".json"))
+
+      for (const file of files) {
+        try {
+          const filePath = path.join(DRAFTS_DIR, file)
+          const rawContent = fs.readFileSync(filePath, "utf8")
+          const parsed = JSON.parse(rawContent || "{}")
+          const tabs = Array.isArray(parsed) ? parsed : (parsed.tabs || [])
+          const staffName = parsed.userName || parsed.userEmail || "Staff"
+          const staffEmail = parsed.userEmail || ""
+          const staffRole = parsed.userRole || "FRONT_DESK"
+          const staffId = parsed.userId || file.replace(".json", "")
+          const updatedAt = parsed.updatedAt || new Date().toISOString()
+
+          for (const tab of tabs) {
+            // Only consider tabs with items in cart
+            if (Array.isArray(tab.cart) && tab.cart.length > 0) {
+              const items: PendingOrderItem[] = tab.cart.map((c: any) => {
+                const unitPrice = c.customPrice ?? c.item?.price ?? 0
+                return {
+                  itemId: c.item?.id || "",
+                  name: c.item?.name || "Item",
+                  catalogType: c.catalogType || "RESTAURANT",
+                  category: c.item?.category || (c.catalogType === "RESTAURANT" ? "Food" : "Drink"),
+                  quantity: c.quantity || 1,
+                  unitPrice,
+                  totalPrice: unitPrice * (c.quantity || 1),
+                }
+              })
+
+              const foodSubtotal = items
+                .filter((i) => i.catalogType === "RESTAURANT")
+                .reduce((sum, i) => sum + i.totalPrice, 0)
+
+              const drinksSubtotal = items
+                .filter((i) => i.catalogType === "BAR")
+                .reduce((sum, i) => sum + i.totalPrice, 0)
+
+              const grandTotal = foodSubtotal + drinksSubtotal
+              const totalItemsCount = items.reduce((sum, i) => sum + i.quantity, 0)
+
+              pendingOrders.push({
+                staffId,
+                staffName,
+                staffEmail,
+                staffRole,
+                tabId: tab.id,
+                orderName: tab.name || "Order",
+                orderType: tab.orderType || "WALKIN",
+                customerName: tab.customerName || "",
+                selectedRoomId: tab.selectedRoomId || "",
+                roomNumber: tab.selectedRoomId ? roomMap.get(tab.selectedRoomId) : undefined,
+                totalItemsCount,
+                items,
+                foodSubtotal,
+                drinksSubtotal,
+                grandTotal,
+                isSaved: tab.isSaved,
+                savedAt: tab.savedAt,
+                updatedAt,
+                rawTab: tab,
+              })
+            }
+          }
+        } catch (fileErr) {
+          console.warn(`Could not parse draft file ${file}:`, fileErr)
+        }
+      }
+    }
+
+    // Sort by most recently updated
+    pendingOrders.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+
+    return { pendingOrders }
+  } catch (err: any) {
+    console.error("Failed to fetch all pending POS orders:", err)
+    return { pendingOrders: [], error: err.message }
+  }
+}
+
+/**
+ * Admin action to discard an active pending order held by a staff member.
+ */
+export async function discardStaffDraftTab(staffId: string, tabId: string) {
+  const session = await auth()
+  const user = session?.user as any
+  if (!session || user?.role !== "ADMIN") {
+    return { success: false, error: "Admin authorization required." }
+  }
+
+  try {
+    const safeId = String(staffId).replace(/[^a-zA-Z0-9_-]/g, "_")
+    const filePath = path.join(DRAFTS_DIR, `${safeId}.json`)
+    if (fs.existsSync(filePath)) {
+      const rawContent = fs.readFileSync(filePath, "utf8")
+      const parsed = JSON.parse(rawContent || "{}")
+      const tabs = Array.isArray(parsed) ? parsed : (parsed.tabs || [])
+      const remainingTabs = tabs.filter((t: any) => t.id !== tabId)
+
+      if (remainingTabs.length === 0) {
+        fs.unlinkSync(filePath)
+      } else {
+        if (Array.isArray(parsed)) {
+          fs.writeFileSync(filePath, JSON.stringify(remainingTabs, null, 2), "utf8")
+        } else {
+          parsed.tabs = remainingTabs
+          parsed.updatedAt = new Date().toISOString()
+          fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2), "utf8")
+        }
+      }
+      return { success: true }
+    }
+    return { success: false, error: "Draft not found." }
+  } catch (err: any) {
+    console.error("Error discarding staff draft:", err)
+    return { success: false, error: err.message }
   }
 }

@@ -5,7 +5,14 @@ import { FinanceDashboardClient } from "./finance-dashboard-client"
 
 export default async function FinancePage() {
   const session = await auth()
-  if (!session || (session.user as any)?.role !== "ADMIN") {
+  const user = session?.user as any
+  const isAdmin = user?.role === "ADMIN"
+  const hasFinanceModule = user?.modules?.includes("FINANCE")
+
+  if (!session || (!isAdmin && !hasFinanceModule)) {
+    if (user?.modules?.includes("EXPENSES")) {
+      redirect("/dashboard/expenses")
+    }
     redirect("/dashboard")
   }
 

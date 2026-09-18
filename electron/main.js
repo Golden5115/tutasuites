@@ -8,7 +8,8 @@ const fs = require('fs');
 let mainWindow = null;
 
 // Determine environment & target server URL
-const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev');
+// Strictly connect to live server https://tutasuites.com unless explicitly started with --dev flag
+const isDev = process.argv.includes('--dev');
 const DEFAULT_PROD_URL = 'https://tutasuites.com';
 const DEV_URL = 'http://localhost:3000';
 
@@ -18,7 +19,16 @@ const configPath = path.join(app.getPath('userData'), 'tuta-config.json');
 function loadConfig() {
   try {
     if (fs.existsSync(configPath)) {
-      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      // Guarantee the app connects to the live production server (tutasuites.com)
+      // and purge any stale localhost/dev URLs unless launched with --dev
+      if (!isDev) {
+        if (!parsed.serverUrl || parsed.serverUrl.includes('localhost') || parsed.serverUrl.includes('127.0.0.1')) {
+          parsed.serverUrl = DEFAULT_PROD_URL;
+          try { fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf8'); } catch (e) {}
+        }
+      }
+      return parsed;
     }
   } catch (err) {
     console.error('Error reading config:', err);
@@ -187,8 +197,8 @@ function createWindow() {
   const menu = Menu.buildFromTemplate(menuTemplate);
   Menu.setApplicationMenu(menu);
 
-  // Load configured URL
-  const targetUrl = isDev ? DEV_URL : (config.serverUrl || DEFAULT_PROD_URL);
+  // Load configured URL - strictly connects to live server https://tutasuites.com
+  const targetUrl = isDev ? DEV_URL : DEFAULT_PROD_URL;
   console.log(`Loading Tuta Suites from: ${targetUrl}`);
   
   const loadWithRetry = (attempt = 1) => {

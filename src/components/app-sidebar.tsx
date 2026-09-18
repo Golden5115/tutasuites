@@ -1,4 +1,4 @@
-import { Calendar, Home, Users, BedDouble, FileText, Settings, Sparkles, LogOut, LineChart, Shirt, Wine, Utensils } from "lucide-react"
+import { Calendar, Home, Users, BedDouble, FileText, Settings, Sparkles, LogOut, LineChart, Shirt, Wine, Utensils, Receipt } from "lucide-react"
 import Image from "next/image"
 import { auth } from "@/auth"
 import { logoutAction } from "@/app/actions/auth-actions"
@@ -73,10 +73,24 @@ export async function AppSidebar() {
       return userModules.includes("RESTAURANT") || userModules.includes("BAR") || userModules.includes("POS");
     }
 
+    if (item.title === "Finance & Analytics") {
+      // Strictly restrict company-wide finance & analytics to Admins and Finance managers
+      return isAdmin || userModules.includes("FINANCE");
+    }
+
     // Check if the item's title maps to a module the user has
     const moduleName = item.title.split(' ')[0].toUpperCase() // e.g. "Reservations" -> "RESERVATIONS"
     return userModules.includes(moduleName)
   })
+
+  // Show Expenses module to Admins OR staff with EXPENSES or FINANCE access
+  if (isAdmin || userModules.includes("EXPENSES") || userModules.includes("FINANCE")) {
+    allItems.push({
+      title: "Expenses",
+      url: "/dashboard/expenses",
+      icon: Receipt,
+    })
+  }
 
   if (isAdmin || userModules.includes("STAFF")) {
     allItems.push({

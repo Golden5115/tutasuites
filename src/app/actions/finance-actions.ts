@@ -6,8 +6,11 @@ import { auth } from "@/auth"
 
 export async function addExpense(data: any) {
   const session = await auth()
-  if (!session || (session.user as any)?.role !== "ADMIN") {
-    return { error: "Unauthorized" }
+  const user = session?.user as any
+  const canAdd = user?.role === "ADMIN" || user?.modules?.includes("EXPENSES") || user?.modules?.includes("FINANCE")
+  
+  if (!session || !canAdd) {
+    return { error: "Unauthorized. Permission required to log expenses." }
   }
 
   try {
@@ -25,6 +28,7 @@ export async function addExpense(data: any) {
       },
     })
     revalidatePath("/dashboard/finance")
+    revalidatePath("/dashboard/expenses")
     return { success: true, expense }
   } catch (error: any) {
     console.error("Failed to add expense:", error)
@@ -34,8 +38,9 @@ export async function addExpense(data: any) {
 
 export async function deleteExpense(id: string) {
   const session = await auth()
-  if (!session || (session.user as any)?.role !== "ADMIN") {
-    return { error: "Unauthorized" }
+  const user = session?.user as any
+  if (!session || user?.role !== "ADMIN") {
+    return { error: "Unauthorized. Only administrators can delete recorded expenses." }
   }
 
   try {
@@ -43,6 +48,7 @@ export async function deleteExpense(id: string) {
       where: { id },
     })
     revalidatePath("/dashboard/finance")
+    revalidatePath("/dashboard/expenses")
     return { success: true }
   } catch (error: any) {
     console.error("Failed to delete expense:", error)
@@ -50,10 +56,31 @@ export async function deleteExpense(id: string) {
   }
 }
 
+export async function getExpensesOnlyData() {
+  const session = await auth()
+  const user = session?.user as any
+  const canAccess = user?.role === "ADMIN" || user?.modules?.includes("EXPENSES") || user?.modules?.includes("FINANCE")
+
+  if (!session || !canAccess) {
+    throw new Error("Unauthorized. Permission required to view expenses.")
+  }
+
+  const expenses = await prisma.expense.findMany({
+    orderBy: { date: 'desc' },
+    take: 200,
+  })
+
+  return { expenses }
+}
+
 export async function getComprehensiveFinanceData(period: "week" | "month" | "year" | "all" = "month") {
   const session = await auth()
-  if (!session || (session.user as any)?.role !== "ADMIN") {
-    throw new Error("Unauthorized")
+  const user = session?.user as any
+  const isAdmin = user?.role === "ADMIN"
+  const hasFinanceModule = user?.modules?.includes("FINANCE")
+
+  if (!session || (!isAdmin && !hasFinanceModule)) {
+    throw new Error("Unauthorized. Only administrators can view company finances.")
   }
 
   const now = new Date()

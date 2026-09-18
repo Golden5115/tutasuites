@@ -1,0 +1,11 @@
+[
+  {
+    "id": "tab-1",
+    "name": "Order #1",
+    "cart": [],
+    "orderType": "WALKIN",
+    "customerName": "",
+    "selectedRoomId": "",
+    "isSaved": false
+  }
+]

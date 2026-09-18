@@ -17,11 +17,12 @@ const categoryBadgeStyles: Record<string, { label: string; style: string }> = {
   OTHER: { label: "General", style: "bg-muted text-muted-foreground border-border" },
 }
 
-export function ExpenseList({ expenses }: { expenses: any[] }) {
+export function ExpenseList({ expenses, isAdmin = true }: { expenses: any[]; isAdmin?: boolean }) {
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
 
   async function handleDelete(id: string) {
+    if (!isAdmin) return
     if (!confirm("Are you sure you want to delete this expense record?")) return
     setLoadingId(id)
     await deleteExpense(id)
@@ -63,7 +64,7 @@ export function ExpenseList({ expenses }: { expenses: any[] }) {
               <th className="px-3.5 py-2.5 font-semibold">Description</th>
               <th className="px-3.5 py-2.5 font-semibold">Category</th>
               <th className="px-3.5 py-2.5 font-semibold">Amount</th>
-              <th className="px-3.5 py-2.5 font-semibold text-right">Action</th>
+              {isAdmin && <th className="px-3.5 py-2.5 font-semibold text-right">Action</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border/40">
@@ -87,21 +88,23 @@ export function ExpenseList({ expenses }: { expenses: any[] }) {
                   <td className="px-3.5 py-2.5 font-bold text-rose-500 whitespace-nowrap">
                     - ₦{expense.amount.toLocaleString()}
                   </td>
-                  <td className="px-3.5 py-2.5 text-right">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => handleDelete(expense.id)}
-                      disabled={loadingId === expense.id}
-                      className="h-7 w-7 text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-lg transition-colors"
-                    >
-                      {loadingId === expense.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin text-rose-500" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  </td>
+                  {isAdmin && (
+                    <td className="px-3.5 py-2.5 text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleDelete(expense.id)}
+                        disabled={loadingId === expense.id}
+                        className="h-7 w-7 text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      >
+                        {loadingId === expense.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-rose-500" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               )
             })}

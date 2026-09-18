@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useTransition } from "react"
-import { createUnifiedPOSOrder, POSCartItem } from "@/app/actions/unified-pos-actions"
+import { useState, useTransition, useEffect } from "react"
+import { createUnifiedPOSOrder, POSCartItem, saveUserPOSDrafts } from "@/app/actions/unified-pos-actions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,7 +20,9 @@ import {
   Search,
   Sparkles,
   Layers,
-  CheckCircle2
+  CheckCircle2,
+  BookmarkCheck,
+  RotateCcw
 } from "lucide-react"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { ThermalReceiptModal, ReceiptData } from "@/components/thermal-receipt-modal"
@@ -37,24 +39,97 @@ interface OrderTab {
   orderType: "WALKIN" | "ROOM"
   customerName: string
   selectedRoomId: string
+  isSaved?: boolean
+  savedAt?: string
 }
 
 interface UnifiedPOSClientProps {
   foodCatalog: any[]
   drinksCatalog: any[]
   occupiedRooms: any[]
+  currentUserId: string
+  currentUserName: string
+  initialSavedTabs?: OrderTab[]
+  importOrderTab?: any
+  onImportComplete?: () => void
 }
 
 export function UnifiedPOSClient({
   foodCatalog,
   drinksCatalog,
   occupiedRooms,
+  currentUserId,
+  currentUserName,
+  initialSavedTabs,
+  importOrderTab,
+  onImportComplete,
 }: UnifiedPOSClientProps) {
+  const STORAGE_KEY = `tuta_pos_orders_v2_${currentUserId}`
+
   // Multi-tab order state
   const [tabs, setTabs] = useState<OrderTab[]>([
     { id: "tab-1", name: "Order #1", cart: [], orderType: "WALKIN", customerName: "", selectedRoomId: "" }
   ])
   const [activeTabId, setActiveTabId] = useState<string>("tab-1")
+  const [isHydrated, setIsHydrated] = useState(false)
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  const [isSavingDraft, setIsSavingDraft] = useState(false)
+
+  // Handle taking over / importing an order tab from Admin Pending Orders view
+  useEffect(() => {
+    if (importOrderTab && importOrderTab.id) {
+      setTabs((prev) => {
+        const exists = prev.some((t) => t.id === importOrderTab.id)
+        if (exists) {
+          return prev.map((t) => (t.id === importOrderTab.id ? importOrderTab : t))
+        }
+        return [...prev, importOrderTab]
+      })
+      setActiveTabId(importOrderTab.id)
+      setSaveFeedback(`Imported pending order "${importOrderTab.name || 'Order'}" into active terminal.`)
+      setTimeout(() => setSaveFeedback(null), 5000)
+      if (onImportComplete) onImportComplete()
+    }
+  }, [importOrderTab, onImportComplete])
+
+  // 1. HYDRATION: Restore this specific user's active in-progress orders
+  useEffect(() => {
+    try {
+      const local = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null
+      if (local) {
+        const parsed = JSON.parse(local)
+        if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
+          setTabs(parsed.tabs)
+          if (parsed.activeTabId && parsed.tabs.some((t: OrderTab) => t.id === parsed.activeTabId)) {
+            setActiveTabId(parsed.activeTabId)
+          } else {
+            setActiveTabId(parsed.tabs[0].id)
+          }
+          setIsHydrated(true)
+          return
+        }
+      }
+      // Fallback: Check server-backed user drafts
+      if (initialSavedTabs && initialSavedTabs.length > 0) {
+        setTabs(initialSavedTabs)
+        setActiveTabId(initialSavedTabs[0].id)
+      }
+    } catch (err) {
+      console.warn("Could not restore user POS session:", err)
+    } finally {
+      setIsHydrated(true)
+    }
+  }, [STORAGE_KEY])
+
+  // 2. CONTINUOUS AUTO-SAVE: Auto-persist cart changes so navigation never loses active orders
+  useEffect(() => {
+    if (!isHydrated) return
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs, activeTabId }))
+    } catch (err) {
+      console.warn("Error auto-saving POS orders:", err)
+    }
+  }, [tabs, activeTabId, isHydrated, STORAGE_KEY])
 
   // Menu view switcher: "RESTAURANT" (Food) | "BAR" (Drinks) | "ALL"
   const [menuView, setMenuView] = useState<"RESTAURANT" | "BAR" | "ALL">("RESTAURANT")
@@ -198,6 +273,61 @@ export function UnifiedPOSClient({
   const grandTotal = foodSubtotal + drinksSubtotal
   const totalItemsCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
+  // Explicit Save / Hold Order (active in-progress order)
+  const handleSaveCurrentOrder = async () => {
+    if (cart.length === 0) {
+      setError("Please add at least one item to the cart before holding or saving this order.")
+      return
+    }
+    setError("")
+    setIsSavingDraft(true)
+    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    const updatedTabs = tabs.map((t) =>
+      t.id === activeTab.id
+        ? { ...t, isSaved: true, savedAt: timeStr }
+        : t
+    )
+    setTabs(updatedTabs)
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs: updatedTabs, activeTabId }))
+      }
+      await saveUserPOSDrafts(updatedTabs)
+      setSaveFeedback(`Order "${activeTab.name}" has been held active at ${timeStr}. You can navigate to other modules and return anytime.`)
+      setTimeout(() => setSaveFeedback(null), 6000)
+    } catch (err) {
+      console.error("Failed to hold draft:", err)
+    } finally {
+      setIsSavingDraft(false)
+    }
+  }
+
+  // Clear / Discard Current Tab
+  const handleClearCurrentCart = () => {
+    if (!confirm(`Are you sure you want to clear "${activeTab.name}"?`)) return
+    const tabIndex = tabs.findIndex((t) => t.id === activeTab.id) + 1
+    const updatedTabs = tabs.map((t) =>
+      t.id === activeTab.id
+        ? {
+            ...t,
+            cart: [],
+            customerName: "",
+            selectedRoomId: "",
+            orderType: "WALKIN" as const,
+            isSaved: false,
+            savedAt: undefined,
+            name: `Order #${tabIndex}`,
+          }
+        : t
+    )
+    setTabs(updatedTabs)
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs: updatedTabs, activeTabId }))
+    }
+    saveUserPOSDrafts(updatedTabs)
+    setSaveFeedback(null)
+  }
+
   // Single-step Checkout
   const handleCheckout = () => {
     setError("")
@@ -248,15 +378,27 @@ export function UnifiedPOSClient({
         setSuccess(true)
         setReceiptData(res.receiptData as ReceiptData)
 
-        // Reset current active tab
-        const tabIndex = tabs.findIndex((t) => t.id === activeTab.id) + 1
-        updateActiveTab({
-          cart: [],
-          orderType: "WALKIN",
-          customerName: "",
-          selectedRoomId: "",
-          name: `Order #${tabIndex}`,
-        })
+        // Once order completes successfully, remove this tab or reset if it was the only one
+        let updatedTabs: OrderTab[]
+        let nextTabId: string
+
+        if (tabs.length > 1) {
+          updatedTabs = tabs.filter((t) => t.id !== activeTab.id)
+          nextTabId = updatedTabs[0].id
+        } else {
+          updatedTabs = [
+            { id: "tab-1", name: "Order #1", cart: [], orderType: "WALKIN", customerName: "", selectedRoomId: "" }
+          ]
+          nextTabId = "tab-1"
+        }
+
+        setTabs(updatedTabs)
+        setActiveTabId(nextTabId)
+
+        if (typeof window !== "undefined") {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs: updatedTabs, activeTabId: nextTabId }))
+        }
+        saveUserPOSDrafts(updatedTabs)
         setIsMobileCartOpen(false)
       }
     })
@@ -264,52 +406,141 @@ export function UnifiedPOSClient({
 
   return (
     <div className="space-y-6">
-      {/* ── 1. MULTI-ORDER TABS HEADER ────────────────────────────────────── */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-border/40 custom-scrollbar">
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTabId
-          const tabItemsCount = tab.cart.reduce((sum, i) => sum + i.quantity, 0)
-          return (
-            <div
-              key={tab.id}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 shrink-0 border select-none ${
-                isActive
-                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                  : "bg-muted/50 text-muted-foreground border-border/50 hover:bg-muted/80 hover:text-foreground"
-              }`}
-            >
-              <span>{tab.name}</span>
-              {tabItemsCount > 0 && (
-                <span
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    isActive ? "bg-black text-primary" : "bg-primary/20 text-primary"
-                  }`}
-                >
-                  {tabItemsCount}
-                </span>
-              )}
-              <button
-                onClick={(e) => closeTab(tab.id, e)}
-                className={`p-0.5 rounded-full transition-colors ml-1 ${
-                  isActive ? "hover:bg-black/20 text-primary-foreground" : "hover:bg-muted-foreground/20 text-muted-foreground"
+      {/* ── 1. USER IDENTITY & MULTI-ORDER TABS HEADER ────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/40">
+        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar flex-1 pb-1 sm:pb-0">
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTabId
+            const tabItemsCount = tab.cart.reduce((sum, i) => sum + i.quantity, 0)
+            return (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 shrink-0 border select-none ${
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-muted/50 text-muted-foreground border-border/50 hover:bg-muted/80 hover:text-foreground"
                 }`}
               >
-                <XIcon className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )
-        })}
-        <Button
-          onClick={createNewTab}
-          variant="outline"
-          size="sm"
-          className="rounded-xl border-dashed border-border/60 hover:border-primary text-xs font-bold flex items-center gap-1.5 shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Tab</span>
-        </Button>
+                <span>{tab.name}</span>
+                {tabItemsCount > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      isActive ? "bg-black text-primary" : "bg-primary/20 text-primary"
+                    }`}
+                  >
+                    {tabItemsCount}
+                  </span>
+                )}
+                {tab.isSaved && (
+                  <span
+                    title={`Active draft saved at ${tab.savedAt || "recent"}`}
+                    className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold ${
+                      isActive
+                        ? "bg-black/30 text-white"
+                        : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                    }`}
+                  >
+                    ● Active
+                  </span>
+                )}
+                {tabs.length > 1 && (
+                  <button
+                    onClick={(e) => closeTab(tab.id, e)}
+                    className={`p-0.5 rounded-full transition-colors ml-1 ${
+                      isActive ? "hover:bg-black/20 text-primary-foreground" : "hover:bg-muted-foreground/20 text-muted-foreground"
+                    }`}
+                  >
+                    <XIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+          <Button
+            onClick={createNewTab}
+            variant="outline"
+            size="sm"
+            className="rounded-xl border-dashed border-border/60 hover:border-primary text-xs font-bold flex items-center gap-1.5 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Tab</span>
+          </Button>
+        </div>
+
+        {/* User Scope Indicator */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-card border border-border/60 text-xs text-muted-foreground shrink-0 self-start sm:self-auto shadow-sm">
+          <User className="w-3.5 h-3.5 text-primary" />
+          <span>Session: <strong className="text-foreground">{currentUserName}</strong></span>
+          <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-md border border-primary/20">
+            Private Order Draft
+          </span>
+        </div>
       </div>
+
+      {/* ── TOP MOBILE QUICK ACTION BAR (Visible on Phones & Tablets) ───── */}
+      <div className="lg:hidden flex items-center justify-between p-3 rounded-2xl bg-card/90 backdrop-blur-xl border border-border/70 shadow-sm gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-primary/15 text-primary flex items-center justify-center shrink-0 border border-primary/20">
+            <ShoppingCart className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-extrabold text-xs text-foreground truncate flex items-center gap-1.5">
+              <span>{activeTab.name}</span>
+              {activeTab.isSaved && (
+                <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                  ● Held Active
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-medium">
+              {totalItemsCount} {totalItemsCount === 1 ? "item" : "items"} • <strong className="text-primary">₦{grandTotal.toLocaleString()}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Top Mobile Hold / Save Order Button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleSaveCurrentOrder}
+            disabled={cart.length === 0 || isSavingDraft}
+            className={`h-9 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm ${
+              activeTab.isSaved 
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" 
+                : "bg-background/80 hover:bg-card border-primary/40 text-foreground"
+            }`}
+          >
+            {isSavingDraft ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+            ) : (
+              <BookmarkCheck className={`w-3.5 h-3.5 ${activeTab.isSaved ? "text-emerald-500" : "text-primary"}`} />
+            )}
+            <span>{activeTab.isSaved ? "Held" : "Hold / Save"}</span>
+          </Button>
+
+          {/* Quick Cart Trigger */}
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setIsMobileCartOpen(true)}
+            className="h-9 px-3 rounded-xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-1.5 shadow-sm"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>Cart</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Mobile Save Feedback Toast Banner */}
+      {saveFeedback && (
+        <div className="lg:hidden p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+          <BookmarkCheck className="w-4 h-4 shrink-0 text-emerald-500" />
+          <span className="leading-tight">{saveFeedback}</span>
+        </div>
+      )}
 
       {/* ── 2. POS MAIN WORKSPACE ─────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -394,7 +625,7 @@ export function UnifiedPOSClient({
           </div>
 
           {/* C. ITEM CARDS GRID */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pb-28 lg:pb-0">
             {filteredItems.map((item) => {
               const isFood = item.catalogType === "RESTAURANT"
               const isZeroPrice = item.price === 0
@@ -651,12 +882,49 @@ export function UnifiedPOSClient({
                 </div>
               )}
 
+              {/* Save Feedback Banner */}
+              {saveFeedback && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2">
+                  <BookmarkCheck className="w-4 h-4 shrink-0 text-emerald-500" />
+                  <span className="leading-tight">{saveFeedback}</span>
+                </div>
+              )}
+
               {/* Error notification */}
               {error && (
                 <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium">
                   {error}
                 </div>
               )}
+
+              {/* Action Buttons: Save/Hold Draft & Clear */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSaveCurrentOrder}
+                  disabled={cart.length === 0 || isSavingDraft}
+                  className="h-9 rounded-xl border-border/70 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-muted"
+                >
+                  {isSavingDraft ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                  ) : (
+                    <BookmarkCheck className={`w-3.5 h-3.5 ${activeTab.isSaved ? "text-emerald-500" : "text-primary"}`} />
+                  )}
+                  <span>{activeTab.isSaved ? "Order Held Active" : "Hold / Save Order"}</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleClearCurrentCart}
+                  disabled={cart.length === 0}
+                  className="h-9 rounded-xl text-xs font-bold text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Clear Cart</span>
+                </Button>
+              </div>
 
               {/* Checkout Button */}
               <Button
@@ -681,64 +949,141 @@ export function UnifiedPOSClient({
         </div>
       </div>
 
-      {/* ── 3. MOBILE FLOATING CART BAR ───────────────────────────────────── */}
-      <div className="lg:hidden fixed bottom-4 left-4 right-4 z-40">
+      {/* ── 3. SUPER MOBILE-FRIENDLY DUAL FLOATING BAR ───────────────────── */}
+      <div className="lg:hidden fixed bottom-3 left-3 right-3 z-40 flex items-center gap-2">
+        {/* Mobile Floating Button 1: Hold / Save Order (Always visible on mobile!) */}
         <Button
+          type="button"
+          onClick={handleSaveCurrentOrder}
+          disabled={cart.length === 0 || isSavingDraft}
+          className={`h-14 px-4 rounded-2xl border font-black text-xs flex flex-col items-center justify-center gap-0.5 shadow-2xl shrink-0 transition-all ${
+            activeTab.isSaved
+              ? "bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/25 active:scale-95"
+              : "bg-card/95 backdrop-blur-2xl text-foreground border-primary/50 hover:bg-card active:scale-95"
+          }`}
+        >
+          {isSavingDraft ? (
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          ) : (
+            <BookmarkCheck className={`w-4 h-4 ${activeTab.isSaved ? "text-white" : "text-emerald-500"}`} />
+          )}
+          <span className="text-[10px] leading-tight">
+            {activeTab.isSaved ? "Held Active" : "Hold / Save"}
+          </span>
+        </Button>
+
+        {/* Mobile Floating Button 2: Cart & Checkout Trigger */}
+        <Button
+          type="button"
           onClick={() => setIsMobileCartOpen(true)}
-          className="w-full h-14 rounded-2xl bg-primary text-primary-foreground shadow-2xl flex items-center justify-between px-5 font-bold"
+          className="flex-1 h-14 rounded-2xl bg-primary hover:bg-primary/95 text-primary-foreground font-extrabold flex items-center justify-between px-4 text-sm shadow-2xl active:scale-[0.99] transition-transform"
         >
           <div className="flex items-center gap-2.5">
-            <ShoppingCart className="w-5 h-5" />
-            <span className="text-sm">{activeTab.name} ({totalItemsCount})</span>
+            <div className="relative">
+              <ShoppingCart className="w-5 h-5" />
+              {totalItemsCount > 0 && (
+                <span className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-black text-primary text-[10px] font-black flex items-center justify-center border border-primary">
+                  {totalItemsCount}
+                </span>
+              )}
+            </div>
+            <div className="text-left">
+              <div className="text-xs font-bold leading-none">{activeTab.name}</div>
+              <div className="text-[10px] opacity-85 font-normal leading-none mt-1">
+                {totalItemsCount === 0 ? "Cart is Empty" : `${totalItemsCount} ${totalItemsCount === 1 ? 'item' : 'items'}`}
+              </div>
+            </div>
           </div>
-          <span className="text-base font-extrabold">₦{grandTotal.toLocaleString()}</span>
+          <span className="text-base font-extrabold font-mono">₦{grandTotal.toLocaleString()}</span>
         </Button>
       </div>
 
       {/* Mobile Drawer Sheet */}
       <Sheet open={isMobileCartOpen} onOpenChange={setIsMobileCartOpen}>
-        <SheetContent side="bottom" className="rounded-t-3xl max-h-[85vh] overflow-y-auto p-6">
+        <SheetContent side="bottom" className="rounded-t-3xl max-h-[90vh] overflow-y-auto p-5 pb-8">
           <SheetHeader className="pb-3 border-b border-border/40">
             <SheetTitle className="flex items-center justify-between text-base font-bold">
-              <span>{activeTab.name} Cart</span>
-              <span className="text-primary">₦{grandTotal.toLocaleString()}</span>
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-primary" />
+                <span>{activeTab.name} Cart</span>
+                {activeTab.isSaved && (
+                  <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                    ● Held Active
+                  </span>
+                )}
+              </div>
+              <span className="text-primary text-lg font-mono font-extrabold">₦{grandTotal.toLocaleString()}</span>
             </SheetTitle>
           </SheetHeader>
+
           <div className="py-4 space-y-4">
-            {/* Same cart contents on mobile */}
-            <div className="grid grid-cols-2 gap-1.5 p-1 bg-muted/60 rounded-xl">
-              <button
-                onClick={() => updateActiveTab({ orderType: "WALKIN" })}
-                className={`py-1.5 rounded-lg text-xs font-bold ${
-                  orderType === "WALKIN" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+            {/* Top Prominent Action Buttons in Sheet */}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSaveCurrentOrder}
+                disabled={cart.length === 0 || isSavingDraft}
+                className={`h-11 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 border shadow-sm transition-all ${
+                  activeTab.isSaved
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                    : "border-primary/50 text-foreground hover:bg-muted"
                 }`}
               >
-                Walk-in
+                {isSavingDraft ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                ) : (
+                  <BookmarkCheck className={`w-4 h-4 ${activeTab.isSaved ? "text-emerald-500" : "text-primary"}`} />
+                )}
+                <span>{activeTab.isSaved ? "Order Held Active" : "Hold / Save Order"}</span>
+              </Button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleClearCurrentCart}
+                disabled={cart.length === 0}
+                className="h-11 rounded-xl text-xs font-bold text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-border/50 flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Clear Cart</span>
+              </Button>
+            </div>
+
+            {/* Order Type Toggle: Walk-in vs Room Charge */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 bg-muted/60 rounded-xl border border-border/40">
+              <button
+                onClick={() => updateActiveTab({ orderType: "WALKIN" })}
+                className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                  orderType === "WALKIN" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                Walk-in Guest
               </button>
               <button
                 onClick={() => updateActiveTab({ orderType: "ROOM" })}
-                className={`py-1.5 rounded-lg text-xs font-bold ${
-                  orderType === "ROOM" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                className={`py-2 rounded-lg text-xs font-bold transition-all ${
+                  orderType === "ROOM" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
                 }`}
               >
-                Room Charge
+                Room Bill
               </button>
             </div>
 
             {orderType === "WALKIN" ? (
               <Input
-                placeholder="Customer Name / Table"
+                placeholder="Customer Name / Table Number (Optional)"
                 value={customerName}
                 onChange={(e) => handleCustomerNameChange(e.target.value)}
-                className="h-9 text-xs rounded-xl"
+                className="h-10 text-xs rounded-xl"
               />
             ) : (
               <select
                 value={selectedRoomId}
                 onChange={(e) => handleRoomChange(e.target.value)}
-                className="w-full h-9 px-3 rounded-xl bg-background border text-xs"
+                className="w-full h-10 px-3 rounded-xl bg-background border border-border/70 text-xs"
               >
-                <option value="">-- Choose Room --</option>
+                <option value="">-- Choose Occupied Room --</option>
                 {occupiedRooms.map((room) => (
                   <option key={room.id} value={room.id}>
                     Room {room.number}
@@ -747,30 +1092,81 @@ export function UnifiedPOSClient({
               </select>
             )}
 
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {cart.map((c) => (
-                <div key={`${c.catalogType}-${c.item.id}`} className="p-2 rounded-xl bg-muted/40 flex items-center justify-between text-xs">
-                  <span className="font-bold truncate max-w-[160px]">{c.item.name}</span>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => updateQuantity(c.item.id, c.catalogType, -1)} className="w-5 h-5 rounded bg-background border flex items-center justify-center">
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="font-bold">{c.quantity}</span>
-                    <button onClick={() => updateQuantity(c.item.id, c.catalogType, 1)} className="w-5 h-5 rounded bg-background border flex items-center justify-center">
-                      <Plus className="w-3 h-3" />
-                    </button>
+            {/* Mobile Cart Items List with large touch buttons */}
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+              {cart.map((c) => {
+                const isFood = c.catalogType === "RESTAURANT"
+                const itemUnitPrice = c.customPrice ?? c.item.price
+
+                return (
+                  <div key={`${c.catalogType}-${c.item.id}`} className="p-2.5 rounded-xl bg-muted/40 border border-border/40 flex items-center justify-between text-xs gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[8px] font-black px-1.5 py-0.2 rounded ${
+                          isFood ? "bg-amber-500/15 text-amber-600" : "bg-purple-500/15 text-purple-600"
+                        }`}>
+                          {isFood ? "Food" : "Drink"}
+                        </span>
+                        <span className="font-bold truncate text-foreground">{c.item.name}</span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        @ ₦{itemUnitPrice.toLocaleString()} = <strong className="text-primary font-mono">₦{(itemUnitPrice * c.quantity).toLocaleString()}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => updateQuantity(c.item.id, c.catalogType, -1)}
+                        className="w-8 h-8 rounded-xl bg-background border border-border/70 active:bg-muted flex items-center justify-center text-foreground font-bold shadow-sm"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="font-black text-xs w-6 text-center">{c.quantity}</span>
+                      <button
+                        onClick={() => updateQuantity(c.item.id, c.catalogType, 1)}
+                        className="w-8 h-8 rounded-xl bg-background border border-border/70 active:bg-muted flex items-center justify-center text-foreground font-bold shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
+                )
+              })}
+
+              {cart.length === 0 && (
+                <div className="py-8 text-center text-xs text-muted-foreground">
+                  Cart is empty. Tap any meal or drink to add.
                 </div>
-              ))}
+              )}
             </div>
 
-            <Button
-              onClick={handleCheckout}
-              disabled={isPending || cart.length === 0}
-              className="w-full h-11 rounded-xl bg-primary text-primary-foreground font-bold text-xs"
-            >
-              {isPending ? "Processing..." : `Complete Order (₦${grandTotal.toLocaleString()})`}
-            </Button>
+            {/* Error in Drawer */}
+            {error && (
+              <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium">
+                {error}
+              </div>
+            )}
+
+            {/* Checkout & Complete Order Button */}
+            <div className="pt-2 space-y-2">
+              <Button
+                onClick={handleCheckout}
+                disabled={isPending || cart.length === 0}
+                className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2"
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing Order...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Complete Order (₦{grandTotal.toLocaleString()})</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </SheetContent>
       </Sheet>
