@@ -15,7 +15,19 @@ export async function printReceipt(receiptHtml: string) {
       <title>Receipt — Tuta Suites</title>
       <style>
         @page {
+          size: 80mm auto;
           margin: 0;
+        }
+        @media print {
+          html, body {
+            width: 78mm !important;
+            max-width: 78mm !important;
+            margin: 0 !important;
+            padding: 1mm 2mm !important;
+          }
+          .screen-actions {
+            display: none !important;
+          }
         }
         * {
           margin: 0;
@@ -210,97 +222,99 @@ export async function printReceipt(receiptHtml: string) {
     </html>
   `
 
-  // 1. DESKTOP CLIENT MODE: Direct Raw ESC/POS printing (NO QZ Tray, NO driver rasterization, NO Chinese text)
+  // 1. DESKTOP CLIENT MODE: Direct printing — NO QZ Tray, NO browser dialog
   if (typeof window !== 'undefined' && (window as any).electronAPI?.isDesktop) {
     try {
-      console.log('Printing via Tuta Suites Native Desktop POS (Direct Raw ESC/POS)...')
+      const sanitizedHtml = fullHtml.replaceAll('₦', '#')
+      const result = await (window as any).electronAPI.printReceipt(sanitizedHtml)
+      if (result?.success) {
+        console.log(`[Desktop] ✅ Thermal print succeeded via ${result.method || 'Spooler-RAW'} → ${result.printer}`)
+        return { success: true, printer: result.printer }
+      }
+      console.warn('[Desktop] printReceipt reported failure, attempting printRaw fallback:', result?.error)
+    } catch (err) {
+      console.error('[Desktop] printReceipt threw:', err)
+    }
+
+    try {
       const sanitizedHtml = fullHtml.replaceAll('₦', '#')
       const escposCommands = convertHtmlToEscPos(sanitizedHtml)
       const rawText = escposCommands.join('')
-      
-      const result = await (window as any).electronAPI.printRaw(rawText)
-      if (result && result.success) {
-        console.log(`Receipt successfully printed to: ${result.printer}`)
-        return { success: true, printer: result.printer }
+      const rawResult = await (window as any).electronAPI.printRaw(rawText)
+      if (rawResult?.success) {
+        console.log(`[Desktop] ✅ printRaw succeeded → ${rawResult.printer}`)
+        return { success: true, printer: rawResult.printer }
       }
-    } catch (desktopError) {
-      console.error('Desktop native raw printing failed, falling back:', desktopError)
+    } catch (rawErr) {
+      console.error('[Desktop] printRaw threw:', rawErr)
     }
+
+    console.error('[Desktop] ❌ All desktop print methods failed. Check printer connection.')
+    return { success: false, error: 'Printer not responding. Go to Printers menu → Set Default Thermal Printer and make sure the Xprinter is selected and connected.' }
   }
 
-  // 2. WEB BROWSER MODE: Fallback to QZ Tray or browser dialog
-  try {
-    // Dynamically import qz-tray to avoid SSR issues
-    const qz = await import('qz-tray')
-    
-    // Set up security certificate & signature verification
-    qz.default.security.setCertificatePromise((resolve: (cert: string) => void, reject: (reason: any) => void) => {
-      fetch('/api/qz/certificate')
-        .then((res) => res.text())
-        .then(resolve)
-        .catch(reject)
-    })
-
-    qz.default.security.setSignatureAlgorithm('SHA512')
-
-    qz.default.security.setSignaturePromise((toSign: string) => {
-      return (resolve: (sig: string) => void, reject: (reason: any) => void) => {
-        fetch('/api/qz/sign', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requestToSign: toSign }),
-        })
-          .then((res) => res.text())
-          .then(resolve)
-          .catch(reject)
-      }
-    })
-
-    // Connect to QZ Tray if not already active
-    if (!qz.default.websocket.isActive()) {
-      await qz.default.websocket.connect()
-    }
-    
-    // Find the default printer
-    const printerName = await qz.default.printers.getDefault()
-    const config = qz.default.configs.create(printerName)
-    
-    // Clean currency symbols for printer compatibility (# instead of ₦)
-    const sanitizedHtml = fullHtml.replaceAll('₦', '#')
-    
-    // Convert HTML structure to native ESC/POS commands for thermal printer
-    const escposCommands = convertHtmlToEscPos(sanitizedHtml)
-    
-    // Resize logo to compact size (110px) on client canvas
-    const logoBase64 = await getResizedLogoBase64(110)
-    
-    const printData: any[] = [
-      '\x1B@',     // Reset printer
-      '\x1Ba\x01', // Center alignment
-    ]
-
-    if (logoBase64) {
-      printData.push({
-        type: 'image',
-        format: 'base64',
-        data: logoBase64,
-        options: {
-          language: 'ESCPOS'
-        }
+  // 2. WEB BROWSER MODE: Direct Silent Printing via Local Desktop Bridge (No QZ Tray)
+  if (typeof window !== 'undefined') {
+    // Attempt A: Connect to local Tuta Suites POS print bridge on the terminal PC
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 1500)
+      const res = await fetch('http://127.0.0.1:19989/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: fullHtml.replaceAll('₦', '#') }),
+        signal: controller.signal,
       })
-      printData.push('\x1Ba\x01') // Keep centered after image
+      clearTimeout(timeoutId)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success) {
+          console.log(`[Web Browser POS] ✅ Printed silently via local hardware bridge → ${data.printer}`)
+          return { success: true, printer: data.printer, method: 'LocalBridge-RAW' }
+        }
+      }
+    } catch (bridgeErr) {
+      // Local bridge not running on this machine (or user is on remote device)
+      console.log('[Web Browser POS] Local hardware bridge not reachable, using direct 80mm browser print')
     }
 
-    // Append the text commands (skipping initial reset & align)
-    printData.push(...escposCommands.slice(2))
-    
-    await qz.default.print(config, printData)
-  } catch (err: unknown) {
-    console.error("QZ Tray Error:", err)
-    
-    // Fallback to window.print if QZ Tray fails or isn't running
-    fallbackPrint(fullHtml)
+    // Attempt B: Clean 80mm Browser Thermal Print (Zero popup blockage, no QZ Tray)
+    return cleanBrowserPrint(fullHtml)
   }
+}
+
+function cleanBrowserPrint(htmlString: string) {
+  try {
+    const existingIframe = document.getElementById('tuta-print-frame')
+    if (existingIframe) existingIframe.remove()
+
+    const iframe = document.createElement('iframe')
+    iframe.id = 'tuta-print-frame'
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = 'none'
+    document.body.appendChild(iframe)
+
+    const doc = iframe.contentWindow?.document
+    if (doc) {
+      doc.open()
+      doc.write(htmlString)
+      doc.close()
+      iframe.contentWindow?.focus()
+      setTimeout(() => {
+        iframe.contentWindow?.print()
+        setTimeout(() => iframe.remove(), 2500)
+      }, 350)
+      return { success: true, method: 'Browser-80mm' }
+    }
+  } catch (err) {
+    console.error('Clean browser print error:', err)
+  }
+  fallbackPrint(htmlString)
+  return { success: true, method: 'Browser-Popup' }
 }
 
 async function getResizedLogoBase64(targetWidth: number = 110): Promise<string | null> {
@@ -352,29 +366,41 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   
   const commands: string[] = []
   
-  // Reset printer
-  commands.push('\x1B@')
-  
+  // ── Printer Initialization ──────────────────────────────────────────────────
+  commands.push('\x1B@')       // ESC @  — Full hardware reset (clear all settings)
+  commands.push('\x1C.')       // FS .   — Cancel Chinese character mode (Xprinter specific)
+  commands.push('\x1Bt\x00')   // ESC t 0 — Codepage: PC437 USA (Western standard)
+  commands.push('\x1BR\x00')   // ESC R 0 — International charset: USA
+  commands.push('\x1BM\x00')   // ESC M 0 — Font A (standard)
+  commands.push('\x1B3\x18')   // ESC 3 24 — Line spacing: 24 dots (standard)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // Helper: strip non-ASCII chars that could trigger Chinese multi-byte mode
+  const ascii = (str: string) => str.replace(/[^\x00-\x7F]/g, (c) => {
+    const map: Record<string, string> = { '₦': '#', '£': 'L', '€': 'E', '©': '(c)', '®': '(R)', '™': 'TM' }
+    return map[c] || '?'
+  })
+
   // Header: Centered
   commands.push('\x1Ba\x01')
   
   // Title: Double height & double width
   const title = doc.querySelector('.receipt-header h2')?.textContent?.trim() || 'TUTA SUITES'
   commands.push('\x1B!\x30')
-  commands.push(`${title}\n`)
+  commands.push(`${ascii(title)}\n`)
   commands.push('\x1B!\x00')
   
   // Address
   const addressText = doc.querySelector('.receipt-header .address')?.textContent?.trim() || ''
   if (addressText) {
     const lines = addressText.split('\n').map(l => l.trim()).filter(Boolean)
-    lines.forEach(l => commands.push(`${l}\n`))
+    lines.forEach(l => commands.push(`${ascii(l)}\n`))
   }
   
   // Badge
   const badge = doc.querySelector('.title-badge')?.textContent?.trim()
   if (badge) {
-    commands.push(`\n${badge}\n`)
+    commands.push(`\n${ascii(badge)}\n`)
   }
   
   commands.push('\n------------------------------------------\n')
@@ -383,8 +409,8 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   commands.push('\x1Ba\x00')
   const metaRows = doc.querySelectorAll('.meta-row')
   metaRows.forEach(row => {
-    const label = row.querySelector('.label')?.textContent?.trim() || ''
-    const value = row.querySelector('.value')?.textContent?.trim() || ''
+    const label = ascii(row.querySelector('.label')?.textContent?.trim() || '')
+    const value = ascii(row.querySelector('.value')?.textContent?.trim() || '')
     if (label || value) {
       commands.push(formatTwoColumns(label, value) + '\n')
     }
@@ -396,7 +422,7 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   const receiptSections = doc.querySelectorAll('.receipt-section')
   if (receiptSections.length > 0) {
     receiptSections.forEach(section => {
-      const sectionTitle = section.querySelector('.section-title')?.textContent?.trim() || ''
+      const sectionTitle = ascii(section.querySelector('.section-title')?.textContent?.trim() || '')
       if (sectionTitle) {
         commands.push('\x1Ba\x01')
         commands.push('\x1BE\x01')
@@ -412,17 +438,17 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
 
       const sectionItems = section.querySelectorAll('.item-row')
       sectionItems.forEach(row => {
-        const name = row.querySelector('.col-item')?.textContent?.trim() || ''
-        const qty = row.querySelector('.col-qty')?.textContent?.trim() || ''
-        const amt = row.querySelector('.col-amt')?.textContent?.trim() || ''
+        const name = ascii(row.querySelector('.col-item')?.textContent?.trim() || '')
+        const qty  = ascii(row.querySelector('.col-qty')?.textContent?.trim() || '')
+        const amt  = ascii(row.querySelector('.col-amt')?.textContent?.trim() || '')
         commands.push(formatThreeColumns(name, qty, amt) + '\n')
       })
 
       const subtotalRow = section.querySelector('.section-subtotal')
       if (subtotalRow) {
         const spans = subtotalRow.querySelectorAll('span')
-        const label = spans[0]?.textContent?.trim() || 'Subtotal:'
-        const amt = spans[1]?.textContent?.trim() || ''
+        const label = ascii(spans[0]?.textContent?.trim() || 'Subtotal:')
+        const amt   = ascii(spans[1]?.textContent?.trim() || '')
         commands.push(' - - - - - - - - - - - - - - - - - - - - -\n')
         commands.push(formatTwoColumns(label, amt) + '\n')
       }
@@ -438,9 +464,9 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
     // Item Rows
     const itemRows = doc.querySelectorAll('.item-row')
     itemRows.forEach(row => {
-      const name = row.querySelector('.col-item')?.textContent?.trim() || ''
-      const qty = row.querySelector('.col-qty')?.textContent?.trim() || ''
-      const amt = row.querySelector('.col-amt')?.textContent?.trim() || ''
+      const name = ascii(row.querySelector('.col-item')?.textContent?.trim() || '')
+      const qty  = ascii(row.querySelector('.col-qty')?.textContent?.trim() || '')
+      const amt  = ascii(row.querySelector('.col-amt')?.textContent?.trim() || '')
       commands.push(formatThreeColumns(name, qty, amt) + '\n')
     })
     
@@ -451,8 +477,8 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   const totalRow = doc.querySelector('.total-row')
   if (totalRow) {
     const spans = totalRow.querySelectorAll('span')
-    const label = spans[0]?.textContent?.trim() || 'TOTAL:'
-    const amt = spans[1]?.textContent?.trim() || ''
+    const label = ascii(spans[0]?.textContent?.trim() || 'TOTAL:')
+    const amt = ascii(spans[1]?.textContent?.trim() || '')
     commands.push('\x1BE\x01')
     commands.push(formatTwoColumns(label, amt) + '\n')
     commands.push('\x1BE\x00')
@@ -461,8 +487,8 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   const statusRow = doc.querySelector('.status-row')
   if (statusRow) {
     const spans = statusRow.querySelectorAll('span')
-    const label = spans[0]?.textContent?.trim() || 'Payment:'
-    const status = spans[1]?.textContent?.trim() || ''
+    const label = ascii(spans[0]?.textContent?.trim() || 'Payment:')
+    const status = ascii(spans[1]?.textContent?.trim() || '')
     commands.push(formatTwoColumns(label, status) + '\n')
   }
   
@@ -471,22 +497,24 @@ export function convertHtmlToEscPos(htmlString: string): string[] {
   // Footer: Centered
   commands.push('\x1Ba\x01')
   const thanks = doc.querySelector('.receipt-footer .thanks')?.textContent?.trim()
-  if (thanks) commands.push(`\n${thanks}\n`)
+  if (thanks) commands.push(`\n${ascii(thanks)}\n`)
   
   const footers = doc.querySelectorAll('.receipt-footer div')
   footers.forEach(div => {
     if (!div.classList.contains('thanks') && !div.classList.contains('powered')) {
       const text = div.textContent?.trim()
-      if (text) commands.push(`${text}\n`)
+      if (text) commands.push(`${ascii(text)}\n`)
     }
   })
   
   const powered = doc.querySelector('.receipt-footer .powered')?.textContent?.trim()
-  if (powered) commands.push(`${powered}\n`)
+  if (powered) commands.push(`${ascii(powered)}\n`)
   
-  // Feed lines & cut
-  commands.push('\n\n\n\n')
-  commands.push('\x1DV\x41\x03')
+  // Feed and cut
+  commands.push('\x0A\x0A\x0A\x0A')   // 4 × LF (paper feed)
+  commands.push('\x1B\x64\x04')        // ESC d 4 — feed 4 lines
+  commands.push('\x1D\x56\x42\x00')   // GS V B 0 — full cut
+  commands.push('\x1B\x69')           // ESC i — instant cut (Xprinter specific)
   
   return commands
 }

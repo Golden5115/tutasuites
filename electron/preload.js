@@ -10,13 +10,63 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printRaw: (rawCommands, printerName) => ipcRenderer.invoke('print:raw', { rawCommands, printerName }),
 });
 
-// 2. Injected QZ Tray WebSocket Emulator
-// Intercepts any call to localhost:8181/8182 made by qz-tray.js on the live website.
-// Completely eliminates the need for the QZ Tray program and routes all ESC/POS directly to the printer!
+// 2. Inject Silent Print Interceptors & QZ Tray Bridge into the Main World
 try {
   webFrame.executeJavaScript(`
     (() => {
-      if (typeof window !== 'undefined' && window.WebSocket) {
+      if (typeof window === 'undefined') return;
+
+      // Helper: ASCII sanitization for thermal printer ESC/POS stream
+      function sanitizeAscii(str) {
+        if (!str || typeof str !== 'string') return '';
+        const map = { '₦': '#', '£': 'L', '€': 'E', '©': '(c)', '®': '(R)', '™': 'TM' };
+        return str.replace(/[^\x00-\x7F]/g, (c) => map[c] || '?');
+      }
+
+      // ── A. OVERRIDE window.print TO BE 100% SILENT (NO CHROMIUM POPUP) ─────────
+      const _originalPrint = window.print;
+      window.print = function() {
+        console.log('[Tuta POS] Intercepted window.print() — routing to native silent print');
+        const receiptEl = document.querySelector('.receipt-container') ||
+                          document.querySelector('.receipt-card') ||
+                          document.body;
+        const html = receiptEl ? receiptEl.outerHTML : document.body.innerHTML;
+        if (window.electronAPI && window.electronAPI.printReceipt) {
+          window.electronAPI.printReceipt(html);
+        }
+      };
+
+      // ── B. INTERCEPT window.open FOR RECEIPT PRINT WINDOWS ──────────────────────
+      const _originalOpen = window.open;
+      window.open = function(url, target, features) {
+        // If it's an empty popup for printing (like fallbackPrint)
+        if (!url || url === '' || url === 'about:blank') {
+          const fakeWindow = {
+            document: {
+              _html: '',
+              open: function() { this._html = ''; },
+              write: function(content) { this._html += content; },
+              close: function() {
+                console.log('[Tuta POS] Intercepted print popup document write — printing silently');
+                if (window.electronAPI && window.electronAPI.printReceipt) {
+                  window.electronAPI.printReceipt(this._html);
+                }
+              }
+            },
+            onload: null,
+            onafterprint: null,
+            print: function() {},
+            close: function() {},
+            focus: function() {}
+          };
+          return fakeWindow;
+        }
+        return _originalOpen.apply(window, arguments);
+      };
+
+      // ── C. INJECT QZ TRAY WEBSOCKET EMULATOR ───────────────────────────────────
+      // Intercepts any call to localhost:8181/8182 made by qz-tray on the website.
+      if (window.WebSocket) {
         const _RealWebSocket = window.WebSocket;
 
         class QZMockWebSocket extends EventTarget {
@@ -54,6 +104,7 @@ try {
                 result = ['Xprinter XP-Q301F'];
               } else if (call === 'print') {
                 const printData = msg.params && msg.params[1] ? msg.params[1] : [];
+                console.log('[Tuta POS] QZ print call received, data chunks:', printData.length);
                 if (window.electronAPI && window.electronAPI.printRaw) {
                   window.electronAPI.printRaw(printData);
                 }
@@ -90,14 +141,36 @@ try {
             url.includes('localhost.qz.io') ||
             url.includes('qz.surf')
           )) {
-            console.log('[Tuta POS] Using native desktop print bridge for:', url);
+            console.log('[Tuta POS] Intercepted QZ Tray WebSocket for native silent print:', url);
             return new QZMockWebSocket(url, protocols);
           }
           return new _RealWebSocket(url, protocols);
         };
       }
+
+      // ── D. DIRECT PRINT BUTTON INTERCEPTOR ─────────────────────────────────────
+      // Catches clicks on any "PRINT RECEIPT" buttons on the web page and prints directly
+      window.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('button, a') : null;
+        if (!btn) return;
+        const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+        if (text.includes('print receipt') || text.includes('print (80mm)')) {
+          console.log('[Tuta POS] Direct Print button click captured');
+          const receiptEl = document.querySelector('.receipt-container') ||
+                            document.querySelector('.receipt-card') ||
+                            document.querySelector('[class*="receipt"]') ||
+                            document.querySelector('div[class*="max-w-[400px]"].bg-white');
+          if (receiptEl && window.electronAPI && window.electronAPI.printReceipt) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.electronAPI.printReceipt(receiptEl.outerHTML);
+          }
+        }
+      }, true);
+
+      console.log('[Tuta POS] Native Desktop Silent Printing Engine Active');
     })();
   `);
 } catch (err) {
-  console.error('Failed to inject QZ mock websocket:', err);
+  console.error('Failed to inject POS silent print interceptors:', err);
 }

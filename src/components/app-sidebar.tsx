@@ -48,13 +48,8 @@ const items = [
     icon: Shirt,
   },
   {
-    title: "Bar",
-    url: "/dashboard/bar",
-    icon: Wine,
-  },
-  {
-    title: "Restaurant",
-    url: "/dashboard/restaurant",
+    title: "Restaurant & Bar",
+    url: "/dashboard/pos",
     icon: Utensils,
   },
   {
@@ -74,6 +69,10 @@ export async function AppSidebar() {
     if (isAdmin) return true;
     if (item.title === "Dashboard") return true; // Everyone sees Dashboard
     
+    if (item.title === "Restaurant & Bar") {
+      return userModules.includes("RESTAURANT") || userModules.includes("BAR") || userModules.includes("POS");
+    }
+
     // Check if the item's title maps to a module the user has
     const moduleName = item.title.split(' ')[0].toUpperCase() // e.g. "Reservations" -> "RESERVATIONS"
     return userModules.includes(moduleName)
