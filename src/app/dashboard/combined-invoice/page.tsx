@@ -69,7 +69,7 @@ export default async function CombinedInvoicePage({
       </div>
 
       {/* 80mm THERMAL RECEIPT PREVIEW (Screen View) */}
-      <div className="max-w-[400px] mx-auto bg-white text-black p-6 font-mono text-xs shadow-2xl rounded-2xl">
+      <div id="thermal-receipt-screen-preview" className="receipt-card max-w-[400px] mx-auto bg-white text-black p-6 font-mono text-xs shadow-2xl rounded-2xl">
         {/* Header */}
         <div className="text-center pb-4 border-b border-dashed border-black/30">
           <div className="relative w-28 h-8 mx-auto mb-2">

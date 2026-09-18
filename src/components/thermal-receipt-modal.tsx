@@ -91,7 +91,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
         </div>
 
         {/* 80mm RECEIPT PREVIEW (Scrollable) */}
-        <div className="bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl overflow-y-auto flex-1 custom-scrollbar">
+        <div id="thermal-receipt-screen-preview" className="receipt-card bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl overflow-y-auto flex-1 custom-scrollbar">
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-black/30">
             <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>

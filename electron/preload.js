@@ -27,8 +27,9 @@ try {
       const _originalPrint = window.print;
       window.print = function() {
         console.log('[Tuta POS] Intercepted window.print() — routing to native silent print');
-        const receiptEl = document.querySelector('.receipt-container') ||
+        const receiptEl = document.getElementById('thermal-receipt-screen-preview') ||
                           document.querySelector('.receipt-card') ||
+                          document.querySelector('.receipt-container') ||
                           document.body;
         const html = receiptEl ? receiptEl.outerHTML : document.body.innerHTML;
         if (window.electronAPI && window.electronAPI.printReceipt) {
@@ -148,28 +149,9 @@ try {
         };
       }
 
-      // ── D. DIRECT PRINT BUTTON INTERCEPTOR ─────────────────────────────────────
-      // Catches clicks on any "PRINT RECEIPT" buttons on the web page and prints directly
-      window.addEventListener('click', (e) => {
-        const btn = e.target && e.target.closest ? e.target.closest('button, a') : null;
-        if (!btn) return;
-        const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-        if (text.includes('print receipt') || text.includes('print (80mm)')) {
-          console.log('[Tuta POS] Direct Print button click captured');
-          const receiptEl = document.querySelector('.receipt-container') ||
-                            document.querySelector('.receipt-card') ||
-                            document.querySelector('[class*="receipt"]') ||
-                            document.querySelector('div[class*="max-w-[400px]"].bg-white');
-          if (receiptEl && window.electronAPI && window.electronAPI.printReceipt) {
-            e.preventDefault();
-            e.stopPropagation();
-            window.electronAPI.printReceipt(receiptEl.outerHTML);
-          }
-        }
-      }, true);
-
       console.log('[Tuta POS] Native Desktop Silent Printing Engine Active');
     })();
+
   `);
 } catch (err) {
   console.error('Failed to inject POS silent print interceptors:', err);

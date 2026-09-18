@@ -74,7 +74,7 @@ export default async function BarInvoicePage({ params }: { params: Promise<{ id:
       )}
 
       {/* 80mm THERMAL RECEIPT PREVIEW (Screen Only) */}
-      <div className="max-w-[380px] mx-auto bg-white text-black p-6 font-mono text-xs shadow-2xl rounded-2xl">
+      <div id="thermal-receipt-screen-preview" className="receipt-card max-w-[380px] mx-auto bg-white text-black p-6 font-mono text-xs shadow-2xl rounded-2xl">
         
         {/* Header */}
         <div className="text-center pb-4 border-b border-dashed border-black/30">

@@ -435,8 +435,16 @@ function convertHtmlToEscPosText(html) {
     return `${p1}${p2}${p3}`;
   };
 
+  const cleanText = (str) => {
+    return String(str || '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   const logoBuf = getThermalLogoBuffer();
-  const initCommands = '\x1B@\x1C.\x1Bt\x00\x1BR\x00\x1BM\x00\x1B3\x18\x1Ba\x01';
+  // ESC @ (init), CAN (clear line buffer), FS . (cancel Chinese), ESC t 0 (PC437), ESC R 0 (USA), ESC M 0 (Font A), ESC 3 24 (line space), ESC a 1 (center)
+  const initCommands = '\x1B@\x18\x1C.\x1Bt\x00\x1BR\x00\x1BM\x00\x1B3\x18\x1Ba\x01';
 
   const lines = [];
 
@@ -451,7 +459,7 @@ function convertHtmlToEscPosText(html) {
   lines.push('Mowe-Ibafo, Ogun State\n');
   lines.push('Tel: +234 811 182 1899\n');
 
-  // Check for badge text
+  // Check for badge text (e.g. *** COMBINED FOOD & BAR RECEIPT ***)
   const badgeMatch = text.match(/\*\*\*[^*]+\*\*\*/);
   if (badgeMatch) {
     lines.push(`\n${badgeMatch[0]}\n`);
@@ -470,17 +478,17 @@ function convertHtmlToEscPosText(html) {
     if (/subtotal|\btotal\b/i.test(inner)) continue;
 
     const spans = [];
-    const spanRegex = /<span[^>]*>([\s\S]*?)<\/span>/gi;
+    const spanRegex = /<(?:span|div)[^>]*>([\s\S]*?)<\/(?:span|div)>/gi;
     let s;
     while ((s = spanRegex.exec(inner)) !== null) {
-      const cleanSpan = s[1].replace(/<[^>]+>/g, '').trim();
-      if (cleanSpan) spans.push(cleanSpan);
+      const val = cleanText(s[1]);
+      if (val) spans.push(val);
     }
 
     if (spans.length >= 2) {
-      const label = spans[0].trim();
-      const val = spans[1].trim();
-      if (label && val && !processedMeta.has(label)) {
+      const label = spans[0];
+      const val = spans[1];
+      if (label && val && !processedMeta.has(label) && !/item|qty|amount/i.test(label)) {
         processedMeta.add(label);
         lines.push(format2Cols(label, val) + '\n');
       }
@@ -489,64 +497,103 @@ function convertHtmlToEscPosText(html) {
 
   lines.push('------------------------------------------\n');
 
-  // --- 2. EXTRACT SECTIONS AND ITEMS ---
+  // Helper: Extract items from any HTML block
   const itemRowExtract = (blockText) => {
     const items = [];
-    const itemRegex = /<div[^>]*class="[^"]*(?:grid\s+grid-cols-12|item-row)[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+    const itemRegex = /<(?:div|tr)[^>]*class="[^"]*(?:grid\s+grid-cols-12|item-row)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|tr)>/gi;
     let im;
     while ((im = itemRegex.exec(blockText)) !== null) {
       const inner = im[1];
       if (/item/i.test(inner) && /qty/i.test(inner) && /amount/i.test(inner)) continue;
       const spans = [];
-      const spanRegex = /<span[^>]*>([\s\S]*?)<\/span>/gi;
+      const spanRegex = /<(?:span|td|div)[^>]*>([\s\S]*?)<\/(?:span|td|div)>/gi;
       let s;
       while ((s = spanRegex.exec(inner)) !== null) {
-        spans.push(s[1].replace(/<[^>]+>/g, '').trim());
+        const val = cleanText(s[1]);
+        if (val) spans.push(val);
       }
       if (spans.length >= 3) {
-        items.push({ name: spans[0], qty: spans[1], amount: spans[2].replace(/₦/g, '#') });
+        items.push({
+          name: spans[0],
+          qty: spans[1],
+          amount: spans[2].replace(/₦/g, '#')
+        });
       }
     }
     return items;
   };
 
-  const knownSectionNames = ['KITCHEN & RESTAURANT', 'MINI LOUNGE & BAR', 'LAUNDRY SERVICE', 'BAR ORDER', 'RESTAURANT ORDER'];
-  const presentSections = knownSectionNames.filter(name => text.includes(name));
+  // --- 2. EXTRACT SECTIONS AND ITEMS ---
+  // A. Check if sections exist via HTML class receipt-section (buildReceiptHtml format)
+  const receiptSectionRegex = /<div[^>]*class="[^"]*receipt-section[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?=<div[^>]*class="[^"]*(?:receipt-section|total-section)[^"]*"|$)/gi;
+  const sectionsFound = [];
+  let secMatch;
 
-  if (presentSections.length > 0) {
-    presentSections.forEach(secName => {
-      const secStartIndex = text.indexOf(secName);
-      const nextIndexCandidates = presentSections
-        .map(n => text.indexOf(n))
-        .filter(idx => idx > secStartIndex);
-      const totalIndex = text.search(/COMBINED TOTAL|GRAND TOTAL|\bTOTAL\b/i);
-      if (totalIndex > secStartIndex) nextIndexCandidates.push(totalIndex);
-      
-      const secEndIndex = nextIndexCandidates.length > 0 ? Math.min(...nextIndexCandidates) : text.length;
-      const sectionSnippet = text.substring(secStartIndex, secEndIndex);
+  while ((secMatch = receiptSectionRegex.exec(text)) !== null) {
+    const secHtml = secMatch[1];
+    const titleMatch = secHtml.match(/<div[^>]*class="[^"]*section-title[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const title = titleMatch ? cleanText(titleMatch[1]) : '';
+    const items = itemRowExtract(secHtml);
+    const subMatch = secHtml.match(/(?:Subtotal)[\s\S]*?(#[\d,]+)/i);
+    sectionsFound.push({
+      title,
+      items,
+      subtotal: subMatch ? subMatch[1] : ''
+    });
+  }
 
-      lines.push('\x1Ba\x01');   // Center
-      lines.push('\x1BE\x01');   // Bold on
-      lines.push(`\n--- ${secName} ---\n`);
-      lines.push('\x1BE\x00');   // Bold off
-      lines.push('\x1Ba\x00');   // Left align
+  // B. If not found via receipt-section class, check for screen preview section names
+  if (sectionsFound.length === 0) {
+    const knownSectionNames = ['KITCHEN & RESTAURANT', 'MINI LOUNGE & BAR', 'LAUNDRY SERVICE', 'BAR ORDER', 'RESTAURANT ORDER'];
+    const presentSections = knownSectionNames.filter(name => text.includes(name));
+
+    if (presentSections.length > 0) {
+      presentSections.forEach(secName => {
+        const secStartIndex = text.indexOf(secName);
+        const nextIndexCandidates = presentSections
+          .map(n => text.indexOf(n))
+          .filter(idx => idx > secStartIndex);
+        const totalIndex = text.search(/COMBINED TOTAL|GRAND TOTAL|\bTOTAL\b/i);
+        if (totalIndex > secStartIndex) nextIndexCandidates.push(totalIndex);
+
+        const secEndIndex = nextIndexCandidates.length > 0 ? Math.min(...nextIndexCandidates) : text.length;
+        const sectionSnippet = text.substring(secStartIndex, secEndIndex);
+        const secItems = itemRowExtract(sectionSnippet);
+        const subMatch = sectionSnippet.match(/(?:Subtotal)[\s\S]*?(#[\d,]+)/i);
+
+        sectionsFound.push({
+          title: secName,
+          items: secItems,
+          subtotal: subMatch ? subMatch[1] : ''
+        });
+      });
+    }
+  }
+
+  if (sectionsFound.length > 0) {
+    sectionsFound.forEach(sec => {
+      if (sec.title) {
+        lines.push('\x1Ba\x01');   // Center
+        lines.push('\x1BE\x01');   // Bold on
+        lines.push(`\n--- ${sec.title} ---\n`);
+        lines.push('\x1BE\x00');   // Bold off
+        lines.push('\x1Ba\x00');   // Left align
+      }
 
       lines.push(format3Cols('Item', 'Qty', 'Amount') + '\n');
       lines.push(' - - - - - - - - - - - - - - - - - - - - -\n');
 
-      const secItems = itemRowExtract(sectionSnippet);
-      secItems.forEach(it => {
+      sec.items.forEach(it => {
         lines.push(format3Cols(it.name, it.qty, it.amount) + '\n');
       });
 
-      const subMatch = sectionSnippet.match(/(?:Subtotal)[\s\S]*?(#[\d,]+)/i);
-      if (subMatch) {
+      if (sec.subtotal) {
         lines.push(' - - - - - - - - - - - - - - - - - - - - -\n');
-        lines.push(format2Cols(`${secName} Subtotal:`, subMatch[1]) + '\n');
+        lines.push(format2Cols(`${sec.title} Subtotal:`, sec.subtotal) + '\n');
       }
     });
   } else {
-    // Standard single items list
+    // Single / standard items list
     lines.push('\x1BE\x01');   // Bold on
     lines.push(format3Cols('Item', 'Qty', 'Amount') + '\n');
     lines.push('\x1BE\x00');   // Bold off
@@ -562,29 +609,35 @@ function convertHtmlToEscPosText(html) {
 
   // --- 3. GRAND TOTAL ---
   let grandTotal = '';
-  const combinedMatch = text.match(/COMBINED TOTAL:?\s*<\/span>\s*<span[^>]*>(#[\d,]+)/i) ||
+  let grandTotalLabel = 'TOTAL:';
+
+  const combinedMatch = text.match(/COMBINED TOTAL:?\s*<\/(?:span|div)>\s*<(?:span|div)[^>]*>(#[\d,]+)/i) ||
                         text.match(/COMBINED TOTAL:?[\s\S]*?(#[\d,]+)/i);
   if (combinedMatch) {
     grandTotal = combinedMatch[1];
+    grandTotalLabel = 'COMBINED TOTAL:';
   } else {
-    const finalTotalMatch = text.match(/(?:GRAND TOTAL|\bTOTAL\b):?\s*<\/span>\s*<span[^>]*>(#[\d,]+)/i) ||
+    const finalTotalMatch = text.match(/(?:GRAND TOTAL|\bTOTAL\b):?\s*<\/(?:span|div)>\s*<(?:span|div)[^>]*>(#[\d,]+)/i) ||
                             text.match(/(?:GRAND TOTAL|\bTOTAL\b):?[\s\S]*?(#[\d,]+)/i);
-    if (finalTotalMatch) grandTotal = finalTotalMatch[1];
+    if (finalTotalMatch) {
+      grandTotal = finalTotalMatch[1];
+      grandTotalLabel = 'TOTAL:';
+    }
   }
 
   if (grandTotal) {
     lines.push('\x1BE\x01');   // Bold on
     lines.push('\x1B!\x20');   // Double height
-    lines.push(format2Cols('COMBINED TOTAL:', grandTotal) + '\n');
+    lines.push(format2Cols(grandTotalLabel, grandTotal) + '\n');
     lines.push('\x1B!\x00');   // Normal
     lines.push('\x1BE\x00');   // Bold off
+    lines.push('------------------------------------------\n');
   }
-
-  lines.push('------------------------------------------\n');
 
   // Footer: Centered
   lines.push('\x1Ba\x01');   // Center
   lines.push('\nThank you for your patronage!\n');
+  lines.push('Please keep this receipt for your records.\n');
   lines.push('Powered by Tuta Suites POS\n');
 
   // Feed 4 lines + Full Cut
@@ -625,7 +678,7 @@ async function sendRawToPrinter(escposInput, preferredPrinter) {
       return { success: false, error: 'No thermal printer found on this system.' };
     }
 
-    const escposHeader = '\x1B@\x1C.\x1Bt\x00\x1BR\x00\x1BM\x00\x1B3\x18';
+    const escposHeader = '\x1B@\x18\x1C.\x1Bt\x00\x1BR\x00\x1BM\x00\x1B3\x18';
     const escposFooter = '\n\n\n\n\x1Bd\x04\x1DV\x42\x00\x1Bi';
 
     let buffer;
