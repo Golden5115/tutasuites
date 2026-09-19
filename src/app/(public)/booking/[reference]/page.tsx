@@ -165,12 +165,12 @@ export default async function BookingDetailPage({ params, searchParams }: Props)
               View / Download Official Invoice
             </Link>
           )}
-          {reservation.paymentStatus === "UNPAID" && reservation.status !== "CANCELLED" && (
+          {reservation.paymentStatus !== "PAID" && reservation.status !== "CANCELLED" && (
             <Link
               href={`/api/paystack/initialize?reservationId=${reservation.id}`}
               className="flex-1 py-3 rounded-xl bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-xs text-center hover:bg-[#F3E5AB] transition-all flex items-center justify-center gap-2"
             >
-              <CreditCard className="w-4 h-4" /> Pay Now
+              <CreditCard className="w-4 h-4" /> Pay with Paystack
             </Link>
           )}
           {canCancel && (

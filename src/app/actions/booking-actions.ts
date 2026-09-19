@@ -212,8 +212,74 @@ export async function createBooking(data: {
     },
   })
 
+  // Initialize Paystack checkout immediately for direct redirect
+  let paystackUrl: string | null = null
+  const paystackSecret = process.env.PAYSTACK_SECRET_KEY
+
+  if (paystackSecret) {
+    try {
+      const reference = `PAY-${bookingReference}-${Date.now()}`
+      const guestEmail = data.email?.trim() || "guest@tutasuites.com"
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://tutasuites.com"
+
+      const paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${paystackSecret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: guestEmail,
+          amount: Math.round(totalAmount * 100), // in kobo
+          currency: "NGN",
+          reference,
+          callback_url: `${appUrl}/api/paystack/verify?reference=${reference}`,
+          metadata: {
+            reservationId: reservation.id,
+            bookingReference,
+            guestName: `${data.firstName} ${data.lastName}`,
+            phone: data.phone,
+          },
+        }),
+      })
+
+      const paystackData = await paystackRes.json()
+
+      if (paystackData.status && paystackData.data?.authorization_url) {
+        paystackUrl = paystackData.data.authorization_url
+
+        // Record pending payment in database
+        await prisma.payment.upsert({
+          where: { reservationId: reservation.id },
+          update: {
+            amount: totalAmount,
+            reference,
+            status: "PENDING",
+            provider: "PAYSTACK",
+          },
+          create: {
+            reservationId: reservation.id,
+            amount: totalAmount,
+            reference,
+            status: "PENDING",
+            provider: "PAYSTACK",
+          },
+        })
+      } else {
+        console.error("Paystack init response error:", paystackData)
+      }
+    } catch (paystackErr) {
+      console.error("Failed to initialize Paystack in createBooking:", paystackErr)
+    }
+  }
+
   revalidatePath("/dashboard")
-  return { bookingReference, reservationId: reservation.id, totalAmount }
+  return { 
+    bookingReference, 
+    reservationId: reservation.id, 
+    totalAmount,
+    paystackUrl: paystackUrl || `/api/paystack/initialize?reservationId=${reservation.id}`
+  }
 }
 
 /**

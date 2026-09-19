@@ -1,20 +1,21 @@
 "use client"
 
 import { useState, useActionState } from "react"
-import { createStaffAction } from "@/app/actions/staff-actions"
+import { updateStaffAction } from "@/app/actions/staff-actions"
 import { SYSTEM_MODULES, ROLE_DEFINITIONS } from "@/lib/staff-constants"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { 
-  UserPlus, 
+  ShieldCheck, 
   KeyRound, 
   Eye, 
   EyeOff, 
   CheckCheck, 
   X, 
   ArrowLeft, 
+  Save, 
   Loader2, 
   AlertCircle,
   Sparkles,
@@ -22,15 +23,24 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 
-export function CreateStaffForm() {
-  const [state, formAction, isPending] = useActionState(createStaffAction, undefined)
+interface EditStaffFormProps {
+  staff: {
+    id: string
+    name: string
+    email: string
+    role: string
+    modules: string[]
+    isActive: boolean
+  }
+  isCurrentUser: boolean
+}
+
+export function EditStaffForm({ staff, isCurrentUser }: EditStaffFormProps) {
+  const [state, formAction, isPending] = useActionState(updateStaffAction, undefined)
   const [showPassword, setShowPassword] = useState(false)
-  const [selectedRole, setSelectedRole] = useState<string>("FRONT_DESK")
-  const [selectedModules, setSelectedModules] = useState<string[]>([
-    "RESERVATIONS",
-    "ROOMS",
-    "RESTAURANT",
-  ])
+  const [selectedRole, setSelectedRole] = useState<string>(staff.role)
+  const [selectedModules, setSelectedModules] = useState<string[]>(staff.modules || [])
+  const [isActive, setIsActive] = useState<boolean>(staff.isActive)
 
   const handleModuleToggle = (moduleKey: string) => {
     setSelectedModules((prev) =>
@@ -50,6 +60,9 @@ export function CreateStaffForm() {
 
   return (
     <form action={formAction} className="space-y-8 max-w-4xl pb-16">
+      <input type="hidden" name="userId" value={staff.id} />
+      <input type="hidden" name="isActive" value={isActive ? "true" : "false"} />
+
       {state?.error && (
         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm font-medium flex items-center gap-3">
           <AlertCircle className="w-5 h-5 shrink-0" />
@@ -61,11 +74,11 @@ export function CreateStaffForm() {
       <Card className="shadow-sm border-border/80">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-primary" />
-            Account Credentials
+            <ShieldCheck className="w-5 h-5 text-primary" />
+            Profile & Account Information
           </CardTitle>
           <CardDescription>
-            Enter the staff member&apos;s full name, email login address, and temporary password.
+            Update personal information, login email address, and account status.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-2">
@@ -76,8 +89,9 @@ export function CreateStaffForm() {
             <Input
               id="name"
               name="name"
+              defaultValue={staff.name}
               required
-              placeholder="e.g. Sarah Connor"
+              placeholder="e.g. John Doe"
               className="h-10"
             />
           </div>
@@ -90,25 +104,30 @@ export function CreateStaffForm() {
               id="email"
               name="email"
               type="email"
+              defaultValue={staff.email}
               required
-              placeholder="e.g. sarah@tutasuites.com"
+              placeholder="e.g. staff@tutasuites.com"
               className="h-10"
             />
           </div>
 
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <KeyRound className="w-3.5 h-3.5" />
-              Password <span className="text-red-500">*</span>
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5" />
+                Reset Password (Optional)
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                Leave empty to keep existing password
+              </span>
+            </div>
             <div className="relative">
               <Input
                 id="password"
                 name="password"
                 type={showPassword ? "text" : "password"}
-                placeholder="Enter password (minimum 6 characters)"
+                placeholder="Enter new password (min. 6 characters)"
                 minLength={6}
-                required
                 className="h-10 pr-10"
               />
               <button
@@ -120,9 +139,59 @@ export function CreateStaffForm() {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Provide this password to the staff member so they can sign in to Tuta Suites.
-            </p>
+          </div>
+
+          {/* Account Status Switch */}
+          <div className="sm:col-span-2 pt-2 border-t border-border/60">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-muted/40 border border-border/60">
+              <div>
+                <div className="font-semibold text-sm text-foreground flex items-center gap-2">
+                  Account Status
+                  {isActive ? (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 border border-red-500/20">
+                      Suspended
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isActive
+                    ? "This staff member can sign in and perform daily duties according to their assigned permissions."
+                    : "This account is currently blocked from signing in. All activity records remain preserved."}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isActive ? "default" : "outline"}
+                  disabled={isCurrentUser && isActive}
+                  onClick={() => setIsActive(true)}
+                  className={`text-xs h-8 ${isActive ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}`}
+                >
+                  Active
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!isActive ? "destructive" : "outline"}
+                  disabled={isCurrentUser}
+                  onClick={() => setIsActive(false)}
+                  className="text-xs h-8"
+                >
+                  Suspended
+                </Button>
+              </div>
+            </div>
+            {isCurrentUser && (
+              <p className="text-[11px] text-muted-foreground mt-2 italic">
+                * You are currently signed into this account and cannot deactivate it.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -268,7 +337,7 @@ export function CreateStaffForm() {
         <Link href="/dashboard/staff">
           <Button type="button" variant="outline" className="gap-2 text-sm">
             <ArrowLeft className="w-4 h-4" />
-            Cancel
+            Back to Staff List
           </Button>
         </Link>
 
@@ -280,12 +349,12 @@ export function CreateStaffForm() {
           {isPending ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Creating Staff Account...
+              Saving Changes...
             </>
           ) : (
             <>
-              <UserPlus className="w-4 h-4" />
-              Create Staff Account
+              <Save className="w-4 h-4" />
+              Save Changes
             </>
           )}
         </Button>

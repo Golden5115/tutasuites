@@ -2,14 +2,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { getAvailableRooms, getOccupiedRooms, getCleaningRooms, checkOutGuest, extendStay } from "@/app/actions"
-import { LogIn, LogOut, BedDouble, User, CalendarPlus, Banknote, DoorOpen, Sparkles } from "lucide-react"
+import { LogIn, LogOut, BedDouble, User, CalendarPlus, Banknote, DoorOpen, Sparkles, Clock, Moon } from "lucide-react"
 import { prisma } from "@/lib/prisma"
 import { CheckInForm } from "@/components/check-in-form"
 import { ExtendStayForm } from "@/components/extend-stay-form"
 import { CheckOutButton } from "@/components/check-out-button"
 import { AddChargeForm } from "@/components/add-charge-form"
 import { MarkCleanButton } from "@/components/mark-clean-button"
-import { DashboardLinkSalesCard } from "@/components/dashboard-link-sales-card"
 
 export default async function Dashboard() {
   const availableRooms = await getAvailableRooms()
@@ -81,11 +80,6 @@ export default async function Dashboard() {
         </div>
       </div>
 
-      {/* Linked Sales & Combined Receipts Card */}
-      <div className="animate-slide-up-delay-1">
-        <DashboardLinkSalesCard />
-      </div>
-
       {/* Main Grid */}
       <div className="grid gap-6 lg:grid-cols-12 animate-slide-up-delay-2">
         {/* CHECK IN FORM */}
@@ -136,7 +130,18 @@ export default async function Dashboard() {
                     <div key={room.id} className="occupied-card flex flex-col gap-3">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h3 className="font-bold text-lg text-foreground">Room {room.number}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-lg text-foreground">Room {room.number}</h3>
+                            {reservation.bookingType === "HOURLY" ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                <Clock className="w-3 h-3" /> Short Time
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                <Moon className="w-3 h-3" /> 24hrs Stay
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-primary/70 mt-0.5">{room.roomType?.name || 'Standard'}</p>
                         </div>
                         <div className="stat-badge">

@@ -231,6 +231,14 @@ export default async function ConfirmationPage({ searchParams }: Props) {
 
       {/* Bottom CTA (Hidden in Print) */}
       <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center print:hidden">
+        {reservation.paymentStatus !== "PAID" && (
+          <Link
+            href={`/api/paystack/initialize?reservationId=${reservation.id}`}
+            className="px-6 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black text-xs font-bold uppercase tracking-wider text-center transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/20"
+          >
+            <CreditCard className="w-4 h-4" /> Complete Payment with Paystack
+          </Link>
+        )}
         <Link
           href={`/booking?email=${reservation.guest.email || ''}&ref=${reservation.bookingReference || ''}`}
           className="px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold uppercase tracking-wider text-center text-white transition-all"

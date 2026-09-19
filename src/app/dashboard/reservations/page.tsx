@@ -103,7 +103,18 @@ export default async function ReservationsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-semibold text-foreground text-sm">Room {res.room.number}</div>
+                        <div className="font-semibold text-foreground text-sm flex items-center gap-1.5">
+                          Room {res.room.number}
+                          {res.bookingType === "HOURLY" ? (
+                            <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                              Short Time
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                              24hrs
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] text-muted-foreground/50 mt-0.5">{res.room.roomType?.name}</div>
                       </td>
                       <td className="px-6 py-4 font-bold text-primary text-sm">

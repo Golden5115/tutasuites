@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Calendar, Users, User, MapPin, MessageSquare, ShoppingBag, CreditCard, ChevronRight, ChevronLeft, Check } from "lucide-react"
+import { Calendar, Users, User, MapPin, MessageSquare, ShoppingBag, CreditCard, ChevronRight, ChevronLeft, Check, Loader2, ShieldCheck, Lock } from "lucide-react"
 import { createBooking, getSiteSettings } from "@/app/actions/booking-actions"
 
 const AVAILABLE_EXTRAS = [
@@ -146,11 +146,22 @@ export function BookingForm({
         extras,
       })
 
-      // Redirect to payment / confirmation
-      router.push(`/book/confirmation?ref=${result.bookingReference}&amount=${result.totalAmount}&id=${result.reservationId}`)
+      // If user is staff in dashboard context, allow direct confirmation
+      if (isStaff) {
+        router.push(`/book/confirmation?ref=${result.bookingReference}&amount=${result.totalAmount}&id=${result.reservationId}`)
+        return
+      }
+
+      // Online public users: redirect straight to Paystack checkout
+      if (result.paystackUrl) {
+        window.location.href = result.paystackUrl
+        return
+      }
+
+      // Fallback
+      window.location.href = `/api/paystack/initialize?reservationId=${result.reservationId}`
     } catch (err: any) {
       setError(err.message || "Something went wrong.")
-    } finally {
       setIsSubmitting(false)
     }
   }
@@ -423,6 +434,24 @@ export function BookingForm({
                 </div>
               </div>
 
+              {/* Paystack Security Notice */}
+              <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.08] flex items-center justify-between text-xs text-white/70">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-[#00C3F7]/10 flex items-center justify-center text-[#00C3F7] shrink-0">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">Direct &amp; Secure Paystack Payment</p>
+                    <p className="text-[11px] text-white/50">
+                      You will be redirected straight to Paystack to complete your booking using Debit Card, Bank Transfer, USSD, or Apple Pay.
+                    </p>
+                  </div>
+                </div>
+                <span className="hidden sm:inline-flex items-center gap-1 font-mono text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                  <Lock className="w-3 h-3" /> Paystack Secured
+                </span>
+              </div>
+
               {error && (
                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl px-4 py-3 text-sm">
                   {error}
@@ -430,16 +459,29 @@ export function BookingForm({
               )}
 
               <div className="flex justify-between pt-4">
-                <button onClick={prevStep} className="px-6 py-3 bg-white/5 text-white font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 border border-white/10">
+                <button 
+                  onClick={prevStep} 
+                  disabled={isSubmitting}
+                  className="px-6 py-3 bg-white/5 text-white font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-white/10 transition-all flex items-center gap-2 border border-white/10 disabled:opacity-50"
+                >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={isSubmitting}
-                  className="px-8 py-3 bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-[#F3E5AB] transition-all disabled:opacity-50 flex items-center gap-2"
+                  className="px-8 py-3.5 bg-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm rounded-xl hover:bg-[#F3E5AB] transition-all disabled:opacity-60 flex items-center gap-2 shadow-lg shadow-[#D4AF37]/20"
                 >
-                  {isSubmitting ? "Processing..." : "Proceed to Payment"}
-                  <CreditCard className="w-4 h-4" />
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Redirecting to Paystack...
+                    </>
+                  ) : (
+                    <>
+                      Pay with Paystack ({settings.currencySymbol}{totalAmount.toLocaleString()})
+                      <CreditCard className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>

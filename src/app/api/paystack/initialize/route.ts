@@ -27,6 +27,10 @@ export async function GET(request: Request) {
   const guestEmail = reservation.guest?.email?.trim() || "guest@tutasuites.com"
 
   try {
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host")
+    const proto = request.headers.get("x-forwarded-proto") || (host?.includes("localhost") ? "http" : "https")
+    const appBaseUrl = host ? `${proto}://${host}` : (process.env.NEXT_PUBLIC_APP_URL || "https://tutasuites.com")
+
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {
@@ -38,7 +42,7 @@ export async function GET(request: Request) {
         amount: Math.round(reservation.totalAmount * 100), // kobo
         currency: "NGN",
         reference,
-        callback_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/paystack/verify?reference=${reference}`,
+        callback_url: `${appBaseUrl}/api/paystack/verify?reference=${reference}`,
         metadata: {
           reservationId: reservation.id,
           bookingReference: reservation.bookingReference,
