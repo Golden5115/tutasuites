@@ -10,7 +10,8 @@
     "postinstall": "prisma generate",
     "electron": "electron electron/main.js",
     "electron:dev": "electron electron/main.js --dev",
-    "electron:dist": "electron-builder --win portable --x64"
+    "electron:dist": "electron-builder --win portable --x64",
+    "electron:setup": "electron-builder --win nsis --x64"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
