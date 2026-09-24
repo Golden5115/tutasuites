@@ -1,0 +1,329 @@
+"use server"
+
+import { prisma } from "@/lib/prisma"
+import { revalidatePath } from "next/cache"
+
+/**
+ * Fetch site settings (tax %, service charge %).
+ * Creates defaults if none exist yet.
+ */
+export async function getSiteSettings() {
+  let settings = await prisma.siteSettings.findFirst()
+  if (!settings) {
+    settings = await prisma.siteSettings.create({ data: {} })
+  }
+  return settings
+}
+
+/**
+ * Search for available room types for a given date range and guest count.
+ * A room type is available if at least one physical room of that type
+ * has no overlapping reservation (that isn't cancelled/checked-out).
+ */
+export async function searchAvailability(
+  checkIn: string,
+  checkOut: string,
+  adults: number,
+  children: number
+) {
+  const checkInDate = new Date(checkIn)
+  const checkOutDate = new Date(checkOut)
+  const totalGuests = adults + children
+
+  // Get all room types that can accommodate the guests
+  const roomTypes = await prisma.roomType.findMany({
+    where: {
+      capacity: { gte: totalGuests },
+    },
+    include: {
+      rooms: {
+        include: {
+          reservations: {
+            where: {
+              status: { notIn: ["CANCELLED", "CHECKED_OUT", "NO_SHOW"] },
+              // Overlapping condition: existing checkIn < requested checkOut AND existing checkOut > requested checkIn
+              checkIn: { lt: checkOutDate },
+              checkOut: { gt: checkInDate },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { basePrice: "asc" },
+  })
+
+  // Filter to only room types that have at least 1 available room
+  return roomTypes
+    .map((rt) => {
+      const availableRooms = rt.rooms.filter(
+        (room) => room.reservations.length === 0 && room.status !== "MAINTENANCE"
+      )
+      return {
+        ...rt,
+        availableCount: availableRooms.length,
+        rooms: undefined, // don't expose room internals
+      }
+    })
+    .filter((rt) => rt.availableCount > 0)
+}
+
+/**
+ * Create a booking (reservation) for a guest.
+ * Finds the first available physical room of the given room type.
+ */
+export async function createBooking(data: {
+  roomTypeSlug: string
+  checkIn: string
+  checkOut: string
+  adults: number
+  children: number
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  country: string
+  specialRequests: string
+  extras: { name: string; price: number; quantity: number }[]
+  bookingType?: "DAILY" | "HOURLY"
+  hours?: number
+}) {
+  const isHourly = data.bookingType === "HOURLY"
+  
+  const checkInDate = new Date(data.checkIn)
+  let checkOutDate = new Date(data.checkOut)
+  let nights = 0
+  let hoursCount = data.hours || 1
+
+  if (isHourly) {
+    // If short time (1 hour), checkout is checkIn + hours
+    checkOutDate = new Date(checkInDate.getTime() + hoursCount * 60 * 60 * 1000)
+  } else {
+    nights = Math.ceil(
+      (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24)
+    )
+  }
+
+  // Get room type
+  const roomType = await prisma.roomType.findUnique({
+    where: { slug: data.roomTypeSlug },
+    include: {
+      rooms: {
+        include: {
+          reservations: {
+            where: {
+              status: { notIn: ["CANCELLED", "CHECKED_OUT", "NO_SHOW"] },
+              checkIn: { lt: checkOutDate },
+              checkOut: { gt: checkInDate },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  if (!roomType) throw new Error("Room type not found")
+
+  // Find first available room
+  const availableRoom = roomType.rooms.find(
+    (room) => room.reservations.length === 0 && room.status !== "MAINTENANCE"
+  )
+
+  if (!availableRoom) throw new Error("No rooms available for the selected dates")
+
+  // Get pricing settings
+  const settings = await getSiteSettings()
+
+  // Calculate pricing
+  let roomPrice = 0
+  if (isHourly) {
+    roomPrice = (roomType.hourlyPrice || roomType.basePrice) * hoursCount
+  } else {
+    roomPrice = roomType.basePrice * Math.max(1, nights)
+  }
+
+  const totalGuests = data.adults + data.children
+  const extraGuestsCount = Math.max(0, totalGuests - 2)
+  const extraGuestFee = 5000
+  // Extra guest charge per night (for daily) or flat (for hourly)
+  if (extraGuestsCount > 0) {
+    data.extras.push({
+      name: `Extra Guest Charge (${extraGuestsCount} additional persons)`,
+      price: extraGuestFee * (isHourly ? 1 : Math.max(1, nights)),
+      quantity: extraGuestsCount
+    })
+  }
+
+  const extrasAmount = data.extras.reduce(
+    (sum, e) => sum + e.price * e.quantity,
+    0
+  )
+  const subtotal = roomPrice + extrasAmount
+  const taxAmount = (subtotal * settings.taxPercent) / 100
+  const serviceCharge = (subtotal * settings.servicePercent) / 100
+  const totalAmount = subtotal + taxAmount + serviceCharge
+
+  // Generate booking reference: HTL-YYYYMMDD-XXXX
+  const dateStr = new Date()
+    .toISOString()
+    .slice(0, 10)
+    .replace(/-/g, "")
+  const randomNum = String(Math.floor(1000 + Math.random() * 9000))
+  const bookingReference = `HTL-${dateStr}-${randomNum}`
+
+  // Create guest
+  const guest = await prisma.guest.create({
+    data: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone,
+      country: data.country,
+      specialRequests: data.specialRequests,
+    },
+  })
+
+  // Create reservation
+  const reservation = await prisma.reservation.create({
+    data: {
+      guestId: guest.id,
+      roomId: availableRoom.id,
+      checkIn: checkInDate,
+      checkOut: checkOutDate,
+      numberOfGuests: data.adults + data.children,
+      adults: data.adults,
+      children: data.children,
+      nights: nights,
+      bookingType: data.bookingType || "DAILY",
+      status: "PENDING",
+      bookingReference,
+      roomPrice,
+      taxAmount,
+      serviceCharge,
+      extrasAmount,
+      totalAmount,
+      paymentStatus: "UNPAID",
+      extras: {
+        create: data.extras.map((e) => ({
+          name: e.name,
+          price: e.price,
+          quantity: e.quantity,
+        })),
+      },
+    },
+  })
+
+  // Initialize Paystack checkout immediately for direct redirect
+  let paystackUrl: string | null = null
+  const paystackSecret = process.env.PAYSTACK_SECRET_KEY
+
+  if (paystackSecret) {
+    try {
+      const reference = `PAY-${bookingReference}-${Date.now()}`
+      const guestEmail = data.email?.trim() || "guest@tutasuites.com"
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://tutasuites.com"
+
+      const paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${paystackSecret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: guestEmail,
+          amount: Math.round(totalAmount * 100), // in kobo
+          currency: "NGN",
+          reference,
+          callback_url: `${appUrl}/api/paystack/verify?reference=${reference}`,
+          metadata: {
+            reservationId: reservation.id,
+            bookingReference,
+            guestName: `${data.firstName} ${data.lastName}`,
+            phone: data.phone,
+          },
+        }),
+      })
+
+      const paystackData = await paystackRes.json()
+
+      if (paystackData.status && paystackData.data?.authorization_url) {
+        paystackUrl = paystackData.data.authorization_url
+
+        // Record pending payment in database
+        await prisma.payment.upsert({
+          where: { reservationId: reservation.id },
+          update: {
+            amount: totalAmount,
+            reference,
+            status: "PENDING",
+            provider: "PAYSTACK",
+          },
+          create: {
+            reservationId: reservation.id,
+            amount: totalAmount,
+            reference,
+            status: "PENDING",
+            provider: "PAYSTACK",
+          },
+        })
+      } else {
+        console.error("Paystack init response error:", paystackData)
+      }
+    } catch (paystackErr) {
+      console.error("Failed to initialize Paystack in createBooking:", paystackErr)
+    }
+  }
+
+  revalidatePath("/dashboard")
+  return { 
+    bookingReference, 
+    reservationId: reservation.id, 
+    totalAmount,
+    paystackUrl: paystackUrl || `/api/paystack/initialize?reservationId=${reservation.id}`
+  }
+}
+
+/**
+ * Look up a booking by email and reference.
+ */
+export async function getBookingByReference(email: string, reference: string) {
+  const reservation = await prisma.reservation.findUnique({
+    where: { bookingReference: reference },
+    include: {
+      guest: true,
+      room: { include: { roomType: true } },
+      payment: true,
+      extras: true,
+    },
+  })
+
+  if (!reservation) return null
+  if (reservation.guest.email?.toLowerCase() !== email.toLowerCase()) return null
+
+  return reservation
+}
+
+/**
+ * Cancel a booking by reference.
+ */
+export async function cancelBooking(reference: string) {
+  const reservation = await prisma.reservation.findUnique({
+    where: { bookingReference: reference },
+  })
+
+  if (!reservation) throw new Error("Booking not found")
+  if (reservation.status === "CHECKED_IN") throw new Error("Cannot cancel a checked-in booking")
+
+  await prisma.reservation.update({
+    where: { id: reservation.id },
+    data: { status: "CANCELLED" },
+  })
+
+  // Make the room available again
+  await prisma.room.update({
+    where: { id: reservation.roomId },
+    data: { status: "AVAILABLE" },
+  })
+
+  revalidatePath("/dashboard")
+  return { success: true }
+}
