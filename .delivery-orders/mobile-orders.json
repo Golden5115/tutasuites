@@ -1,0 +1,32 @@
+[
+  {
+    "id": "TUTA-ORD-143430",
+    "trackingId": "TUTA-ORD-143430",
+    "type": "MEAL",
+    "items": [],
+    "customerName": "Tunde",
+    "customerPhone": "08012345678",
+    "deliveryAddress": "Mowe Express",
+    "deliveryArea": "Mowe",
+    "deliveryNotes": "",
+    "paymentMethod": "TRANSFER",
+    "subtotal": 2500,
+    "deliveryFee": 1200,
+    "serviceFee": 200,
+    "totalAmount": 3900,
+    "estimatedMinutes": 30,
+    "estimatedArrival": "2026-10-10T09:51:14.162Z",
+    "status": "PREPARING",
+    "rider": {
+      "name": "Babatunde K.",
+      "phone": "07075733866",
+      "vehicle": "Bajaj Boxer 150",
+      "plateNumber": "OGN-842-KT",
+      "rating": 4.9,
+      "deliveriesCount": 184,
+      "avatar": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop"
+    },
+    "createdAt": "2026-10-10T09:21:14.162Z",
+    "updatedAt": "2026-10-10T09:21:14.162Z"
+  }
+]

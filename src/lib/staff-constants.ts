@@ -50,6 +50,13 @@ export const SYSTEM_MODULES: ModuleDefinition[] = [
     category: "operations",
   },
   {
+    key: "GRAB_AND_GO",
+    label: "Tuta Grab & Go (Express Counter)",
+    shortLabel: "Tuta Grab & Go",
+    description: "Fast-casual restaurant counter POS for Tuta Grab & Go meals, takeaway packs, and portion pricing.",
+    category: "operations",
+  },
+  {
     key: "EXPENSES",
     label: "Operating Expenses",
     shortLabel: "Expenses",

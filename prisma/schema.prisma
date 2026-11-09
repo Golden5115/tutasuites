@@ -260,3 +260,45 @@ model RestaurantOrderItem {
   totalPrice    Float
   createdAt     DateTime @default(now())
 }
+
+
+model GrabAndGoItem {
+  id          String              @id @default(cuid())
+  name        String              @unique
+  price       Float
+  category    String              @default("Rice")
+  isAvailable Boolean             @default(true)
+  stock       Int                 @default(500)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  orderItems  GrabAndGoOrderItem[]
+}
+
+model GrabAndGoOrder {
+  id            String               @id @default(cuid())
+  orderNumber   String               @unique
+  customerName  String?
+  orderType     String               @default("TAKEAWAY")
+  paymentMethod String               @default("CASH")
+  cashierName   String?
+  status        String               @default("COMPLETED")
+  totalAmount   Float
+  notes         String?
+  items         GrabAndGoOrderItem[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+model GrabAndGoOrderItem {
+  id         String         @id @default(cuid())
+  orderId    String
+  order      GrabAndGoOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       GrabAndGoItem  @relation(fields: [itemId], references: [id])
+  itemName   String
+  category   String
+  quantity   Int            @default(1)
+  unitPrice  Float
+  totalPrice Float
+  createdAt  DateTime       @default(now())
+}

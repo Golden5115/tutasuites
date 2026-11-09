@@ -48,7 +48,11 @@ export function PublicFooter() {
             </p>
             <p className="flex items-center gap-3">
               <Phone className="w-4 h-4 text-[#D4AF37] shrink-0" /> 
-              0811 182 1899
+              <span>Hotel: <a href="tel:08111821899" className="hover:text-[#D4AF37] transition-colors">0811 182 1899</a></span>
+            </p>
+            <p className="flex items-center gap-3 text-white/80">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Courier / Dispatch: <a href="tel:07075733866" className="hover:text-[#D4AF37] text-[#D4AF37] font-semibold transition-colors">07075733866</a></span>
             </p>
           </div>
         </div>
@@ -57,6 +61,10 @@ export function PublicFooter() {
           <h4 className="text-white font-bold uppercase tracking-[0.2em] text-sm mb-6">Quick Links</h4>
           <div className="flex flex-col space-y-3 text-white/60 text-sm">
             <Link href="/rooms" className="hover:text-[#D4AF37] transition-colors">Our Suites</Link>
+            <Link href="/delivery" className="hover:text-[#D4AF37] text-white/90 font-medium transition-colors flex items-center gap-2">
+              <span>Tuta Courier Service</span>
+              <span className="text-[9px] bg-[#D4AF37] text-black font-extrabold px-1.5 py-0.5 rounded">NEW</span>
+            </Link>
             <Link href="/booking" className="hover:text-[#D4AF37] transition-colors">My Booking</Link>
             <a href="/#about" className="hover:text-[#D4AF37] transition-colors">About Us</a>
           </div>

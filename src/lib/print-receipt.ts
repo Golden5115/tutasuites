@@ -556,6 +556,7 @@ export interface PrintReceiptSection {
 }
 
 export interface PrintReceiptData {
+  storeHeader?: string
   title: string
   orderNumber: string
   date: string
@@ -652,7 +653,7 @@ export function buildReceiptHtml(data: PrintReceiptData): string {
 
   return `
     <div class="receipt-header">
-      <h2>TUTA SUITES</h2>
+      <h2>${data.storeHeader || 'TUTA SUITES'}</h2>
       <div class="address">
         3, Assurance CDA Estate, Orimerunmu<br/>
         Mowe-Ibafo, Ogun State<br/>

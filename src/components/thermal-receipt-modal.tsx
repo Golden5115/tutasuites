@@ -18,6 +18,7 @@ export interface ReceiptSection {
 }
 
 export interface ReceiptData {
+  storeHeader?: string
   title: string
   orderNumber: string
   date: string
@@ -45,6 +46,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
 
   const handlePrint = () => {
     const html = buildReceiptHtml({
+      storeHeader: data.storeHeader,
       title: data.title,
       orderNumber: data.orderNumber,
       date: data.date,
@@ -94,7 +96,7 @@ export function ThermalReceiptModal({ isOpen, onClose, data }: ThermalReceiptMod
         <div id="thermal-receipt-screen-preview" className="receipt-card bg-white text-black p-5 font-mono text-xs shadow-inner rounded-xl overflow-y-auto flex-1 custom-scrollbar">
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-black/30">
-            <h2 className="text-base font-bold tracking-wider uppercase">TUTA SUITES</h2>
+            <h2 className="text-base font-bold tracking-wider uppercase">{data.storeHeader || "TUTA SUITES"}</h2>
             <p className="text-[10px] text-zinc-600 leading-tight mt-0.5">
               3, Assurance CDA Estate, Orimerunmu<br />
               Mowe-Ibafo, Ogun State<br />

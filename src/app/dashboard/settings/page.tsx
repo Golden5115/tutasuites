@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
-import { Settings, Percent, DollarSign, Shirt, List, Wine, Utensils } from "lucide-react"
+import { Settings, Percent, DollarSign, Shirt, List, Wine, Utensils, ShoppingBag } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -181,6 +181,22 @@ export default async function SettingsPage() {
               <Link href="/dashboard/settings/restaurant-catalog" className="w-full">
                 <Button variant="outline" className="w-full flex items-center gap-2">
                   <List className="w-4 h-4" /> Manage Restaurant Items
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+          {/* Tuta Grab & Go Pricing */}
+          <Card className="mt-6 border-emerald-500/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingBag className="w-5 h-5 text-emerald-500" /> Tuta Grab &amp; Go Menu
+              </CardTitle>
+              <CardDescription>Manage Tuta Grab &amp; Go fast-casual menu items, portion prices, and categories.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/dashboard/settings/grab-and-go-catalog" className="w-full">
+                <Button variant="outline" className="w-full flex items-center gap-2 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10">
+                  <List className="w-4 h-4" /> Manage Grab &amp; Go Price List
                 </Button>
               </Link>
             </CardContent>

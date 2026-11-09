@@ -6,6 +6,8 @@ import { useState, useEffect } from "react"
 import { Menu, X } from "lucide-react"
 import { usePathname } from "next/navigation"
 
+import { DeliveryAnnouncementBar } from "@/components/delivery-announcement-bar"
+
 export function PublicNav() {
   const [isOpen, setIsOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
@@ -27,52 +29,65 @@ export function PublicNav() {
 
   return (
     <>
-      <nav
-        className={`fixed top-0 w-full z-50 transition-all duration-500 ease-in-out px-6 md:px-16 ${scrolled
-            ? "py-4 bg-black/80 backdrop-blur-lg border-b border-white/10 shadow-2xl shadow-black/50"
-            : "py-8 bg-transparent border-b border-transparent"
-          }`}
-      >
-        <div className="flex items-center justify-between max-w-[1600px] mx-auto w-full relative">
-          {/* Logo */}
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex flex-col items-center group">
-              <div className="relative w-20 h-8 md:w-24 md:h-10 transition-transform duration-500 group-hover:scale-105">
-                <Image
-                  src="/logo.png"
-                  alt="Tuta Suites Logo"
-                  fill
-                  className="object-contain invert opacity-90 group-hover:opacity-100 transition-opacity"
-                  priority
-                />
-              </div>
-              <span className="text-[9px] md:text-[11px] font-bold tracking-[0.3em] text-white/90 group-hover:text-[#D4AF37] transition-colors mt-1">
-                TUTASUITES
-              </span>
-            </Link>
-          </div>
+      <div className="fixed top-0 w-full z-50">
+        <DeliveryAnnouncementBar />
+        <nav
+          className={`w-full transition-all duration-500 ease-in-out px-6 md:px-16 ${scrolled
+              ? "py-4 bg-black/90 backdrop-blur-lg border-b border-white/10 shadow-2xl shadow-black/50"
+              : "py-7 bg-transparent border-b border-transparent"
+            }`}
+        >
+          <div className="flex items-center justify-between max-w-[1600px] mx-auto w-full relative">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <Link href="/" className="flex flex-col items-center group">
+                <div className="relative w-20 h-8 md:w-24 md:h-10 transition-transform duration-500 group-hover:scale-105">
+                  <Image
+                    src="/logo.png"
+                    alt="Tuta Suites Logo"
+                    fill
+                    className="object-contain invert opacity-90 group-hover:opacity-100 transition-opacity"
+                    priority
+                  />
+                </div>
+                <span className="text-[9px] md:text-[11px] font-bold tracking-[0.3em] text-white/90 group-hover:text-[#D4AF37] transition-colors mt-1">
+                  TUTASUITES
+                </span>
+              </Link>
+            </div>
 
-          {/* Desktop Menu */}
-          <div className="hidden lg:flex items-center gap-12 text-xs tracking-[0.2em] uppercase font-medium text-white/80 absolute left-1/2 -translate-x-1/2">
-            {["Home", "Rooms", "About", "Contact"].map((item) => (
+            {/* Desktop Menu */}
+            <div className="hidden lg:flex items-center gap-10 text-xs tracking-[0.18em] uppercase font-medium text-white/80 absolute left-1/2 -translate-x-1/2">
+              {["Home", "Rooms", "About", "Contact"].map((item) => (
+                <Link
+                  key={item}
+                  href={item === "Home" ? "/" : item === "Rooms" ? "/rooms" : `/#${item.toLowerCase()}`}
+                  className="relative group py-2 transition-colors hover:text-white"
+                >
+                  {item}
+                  <span className="absolute left-0 bottom-0 w-0 h-[1px] bg-[#D4AF37] transition-all duration-300 group-hover:w-full"></span>
+                </Link>
+              ))}
+
               <Link
-                key={item}
-                href={item === "Home" ? "/" : item === "Rooms" ? "/rooms" : `/#${item.toLowerCase()}`}
-                className="relative group py-2 transition-colors hover:text-white"
+                href="/delivery"
+                className="relative group py-2 transition-colors hover:text-white flex items-center gap-2"
               >
-                {item}
+                <span>Courier</span>
+                <span className="px-1.5 py-0.5 text-[9px] font-black tracking-wider rounded bg-[#D4AF37] text-black shadow-[0_0_8px_rgba(212,175,55,0.4)]">
+                  NEW
+                </span>
                 <span className="absolute left-0 bottom-0 w-0 h-[1px] bg-[#D4AF37] transition-all duration-300 group-hover:w-full"></span>
               </Link>
-            ))}
 
-            <Link
-              href="/booking"
-              className="relative group py-2 transition-colors hover:text-white"
-            >
-              My Booking
-              <span className="absolute left-0 bottom-0 w-0 h-[1px] bg-[#D4AF37] transition-all duration-300 group-hover:w-full"></span>
-            </Link>
-          </div>
+              <Link
+                href="/booking"
+                className="relative group py-2 transition-colors hover:text-white"
+              >
+                My Booking
+                <span className="absolute left-0 bottom-0 w-0 h-[1px] bg-[#D4AF37] transition-all duration-300 group-hover:w-full"></span>
+              </Link>
+            </div>
 
           {/* Desktop Call to Actions */}
           <div className="hidden lg:flex items-center gap-6">
@@ -113,6 +128,7 @@ export function PublicNav() {
           </button>
         </div>
       </nav>
+    </div>
 
       {/* Mobile Menu Overlay */}
       <div
@@ -148,6 +164,14 @@ export function PublicNav() {
           </a>
           <Link href="/booking" onClick={() => setIsOpen(false)} className="hover:text-[#D4AF37] transition-colors flex items-center gap-4">
             <span className="w-8 h-[1px] bg-white/20"></span> My Booking
+          </Link>
+          <Link href="/delivery" onClick={() => setIsOpen(false)} className="hover:text-[#D4AF37] transition-colors flex items-center justify-between pr-6">
+            <div className="flex items-center gap-4">
+              <span className="w-8 h-[1px] bg-[#D4AF37]"></span> Courier & Delivery
+            </div>
+            <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded bg-[#D4AF37] text-black">
+              NEW
+            </span>
           </Link>
         </div>
 

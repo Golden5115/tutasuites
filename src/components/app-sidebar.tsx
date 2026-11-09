@@ -1,4 +1,4 @@
-import { Calendar, Home, Users, BedDouble, FileText, Settings, Sparkles, LogOut, LineChart, Shirt, Wine, Utensils, Receipt } from "lucide-react"
+import { Calendar, Home, Users, BedDouble, FileText, Settings, Sparkles, LogOut, LineChart, Shirt, Wine, Utensils, Receipt, ShoppingBag } from "lucide-react"
 import Image from "next/image"
 import { auth } from "@/auth"
 import { logoutAction } from "@/app/actions/auth-actions"
@@ -53,6 +53,11 @@ const items = [
     icon: Utensils,
   },
   {
+    title: "Tuta Grab & Go",
+    url: "/dashboard/grab-and-go",
+    icon: ShoppingBag,
+  },
+  {
     title: "Finance & Analytics",
     url: "/dashboard/finance",
     icon: LineChart,
@@ -71,6 +76,10 @@ export async function AppSidebar() {
     
     if (item.title === "Restaurant & Bar") {
       return userModules.includes("RESTAURANT") || userModules.includes("BAR") || userModules.includes("POS");
+    }
+
+    if (item.title === "Tuta Grab & Go") {
+      return userModules.includes("GRAB_AND_GO");
     }
 
     if (item.title === "Finance & Analytics") {

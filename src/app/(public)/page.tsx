@@ -4,6 +4,7 @@ import { Calendar, ChevronRight, Star, Wifi, Utensils, ShieldCheck, Sparkles, Cl
 import { HeroCarousel } from "@/components/hero-carousel"
 import { SearchForm } from "@/components/search-form"
 import { FadeIn, StaggerContainer, StaggerItem } from "@/components/fade-in"
+import { DeliveryHomeSection } from "@/components/delivery-home-section"
 import { prisma } from "@/lib/prisma"
 
 const AMENITIES = [
@@ -147,6 +148,9 @@ export default async function LandingPage() {
           </StaggerContainer>
         </div>
       </section>
+
+      {/* ── Tuta Courier & Delivery Section ── */}
+      <DeliveryHomeSection />
 
       {/* ── Amenities & Services Section ── */}
       <section id="amenities" className="py-16 md:py-32 px-6 md:px-16 overflow-hidden">
