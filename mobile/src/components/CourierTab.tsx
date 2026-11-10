@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from "react-native"
 import { COLORS } from "../constants/theme"
 
@@ -49,7 +50,7 @@ export const CourierTab: React.FC<CourierTabProps> = ({ onBookCourier }) => {
 
   const handleBook = () => {
     if (!recipientName || !recipientPhone || !recipientAddress || !itemDescription) {
-      alert("Please fill in recipient name, phone, address, and item description.")
+      Alert.alert("Missing Information", "Please fill in recipient name, phone, address, and item description.")
       return
     }
 

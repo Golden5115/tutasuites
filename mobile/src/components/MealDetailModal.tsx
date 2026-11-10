@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import {
   View,
   Text,
@@ -10,7 +10,14 @@ import {
   TextInput,
 } from "react-native"
 import { COLORS } from "../constants/theme"
-import { MenuItem, PROTEIN_ADDONS, SIDE_ADDONS } from "../constants/menuData"
+import {
+  MenuItem,
+  SOUP_OPTIONS,
+  PROTEIN_ADDONS,
+  SIDE_ADDONS,
+  DRINK_ADDONS,
+  PACKAGING_ADDON,
+} from "../constants/menuData"
 
 interface MealDetailModalProps {
   item: MenuItem | null
@@ -27,10 +34,27 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
 }) => {
   if (!item) return null
 
+  const isSwallow = item.category === "Swallow & Soup"
+  const isRice = item.category === "Rice"
+
   const [quantity, setQuantity] = useState(1)
+  const [selectedSoup, setSelectedSoup] = useState<string>(isSwallow ? "soup-egusi" : "")
   const [selectedProteins, setSelectedProteins] = useState<string[]>([])
   const [selectedSides, setSelectedSides] = useState<string[]>([])
+  const [selectedDrinks, setSelectedDrinks] = useState<string[]>([])
+  const [includeTakeawayPack, setIncludeTakeawayPack] = useState(true)
   const [specialInstructions, setSpecialInstructions] = useState("")
+
+  // Reset states when item changes
+  useEffect(() => {
+    setQuantity(1)
+    setSelectedSoup(item?.category === "Swallow & Soup" ? "soup-egusi" : "")
+    setSelectedProteins([])
+    setSelectedSides([])
+    setSelectedDrinks([])
+    setIncludeTakeawayPack(true)
+    setSpecialInstructions("")
+  }, [item])
 
   const toggleProtein = (id: string) => {
     setSelectedProteins((prev) =>
@@ -44,7 +68,13 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
     )
   }
 
-  // Calculate total
+  const toggleDrink = (id: string) => {
+    setSelectedDrinks((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+    )
+  }
+
+  // Cost calculations
   const proteinCost = selectedProteins.reduce((sum, id) => {
     const p = PROTEIN_ADDONS.find((item) => item.id === id)
     return sum + (p ? p.price : 0)
@@ -55,144 +85,253 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
     return sum + (s ? s.price : 0)
   }, 0)
 
-  const singleItemTotal = item.price + proteinCost + sideCost
-  const grandTotal = singleItemTotal * quantity
+  const drinkCost = selectedDrinks.reduce((sum, id) => {
+    const d = DRINK_ADDONS.find((item) => item.id === id)
+    return sum + (d ? d.price : 0)
+  }, 0)
+
+  const packCost = includeTakeawayPack ? PACKAGING_ADDON.price : 0
+
+  const singlePlateTotal = item.price + proteinCost + sideCost + drinkCost + packCost
+  const grandTotal = singlePlateTotal * quantity
 
   const handleConfirm = () => {
+    const soupName = SOUP_OPTIONS.find((s) => s.id === selectedSoup)?.name
     const proteinNames = selectedProteins
       .map((id) => PROTEIN_ADDONS.find((p) => p.id === id)?.name)
-      .filter(Boolean)
+      .filter(Boolean) as string[]
     const sideNames = selectedSides
       .map((id) => SIDE_ADDONS.find((s) => s.id === id)?.name)
-      .filter(Boolean)
+      .filter(Boolean) as string[]
+    const drinkNames = selectedDrinks
+      .map((id) => DRINK_ADDONS.find((d) => d.id === id)?.name)
+      .filter(Boolean) as string[]
 
     onAddToCart({
       id: `${item.id}-${Date.now()}`,
       itemId: item.id,
       name: item.name,
       basePrice: item.price,
-      unitPrice: singleItemTotal,
+      unitPrice: singlePlateTotal,
       quantity,
       totalPrice: grandTotal,
       image: item.image,
+      soup: soupName,
       proteins: proteinNames,
       sides: sideNames,
+      drinks: drinkNames,
+      includePack: includeTakeawayPack,
       instructions: specialInstructions,
     })
 
-    // Reset
-    setQuantity(1)
-    setSelectedProteins([])
-    setSelectedSides([])
-    setSpecialInstructions("")
     onClose()
   }
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.backdrop}>
+      <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          {/* Header Image */}
+          {/* Header image & close button */}
           <View style={styles.imageContainer}>
             <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.8}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
+            <View style={styles.badgeContainer}>
+              <Text style={styles.badgeText}>⚡ Ready in {item.prepTime}</Text>
+            </View>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-            <View style={styles.headerInfo}>
-              <Text style={styles.title}>{item.name}</Text>
-              <Text style={styles.price}>₦{item.price.toLocaleString()}</Text>
-              <Text style={styles.desc}>{item.desc}</Text>
-              <Text style={styles.prepTime}>⏱ Prep Time: {item.prepTime}</Text>
+          <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+            {/* Title & Base Price */}
+            <View style={styles.titleSection}>
+              <View style={styles.titleRow}>
+                <Text style={styles.itemName}>{item.name}</Text>
+                <Text style={styles.itemPrice}>₦{item.price.toLocaleString()}</Text>
+              </View>
+              <Text style={styles.itemDesc}>{item.desc}</Text>
             </View>
 
-            {/* Protein Addons */}
+            {/* Soup Choice (If Swallow) */}
+            {isSwallow && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>1. Choose Complimentary Soup</Text>
+                  <Text style={styles.requiredTag}>REQUIRED</Text>
+                </View>
+                {SOUP_OPTIONS.map((soup) => {
+                  const isSelected = selectedSoup === soup.id
+                  return (
+                    <TouchableOpacity
+                      key={soup.id}
+                      style={[styles.optionRow, isSelected && styles.optionRowSelected]}
+                      onPress={() => setSelectedSoup(soup.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.optionLeft}>
+                        <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
+                          {isSelected && <View style={styles.radioInner} />}
+                        </View>
+                        <Text style={styles.optionName}>{soup.name}</Text>
+                      </View>
+                      <Text style={styles.freeTag}>Included Free</Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            )}
+
+            {/* Protein Add-ons */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Choice of Protein (Optional)</Text>
-              <Text style={styles.sectionSubtitle}>Select one or more to add to your dish</Text>
-              {PROTEIN_ADDONS.map((prot) => {
-                const isChecked = selectedProteins.includes(prot.id)
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
+                  {isSwallow || isRice ? "2. Add Protein to Plate" : "Add Extra Protein"}
+                </Text>
+                <Text style={styles.optionalTag}>OPTIONAL</Text>
+              </View>
+              {PROTEIN_ADDONS.map((p) => {
+                const isSelected = selectedProteins.includes(p.id)
                 return (
                   <TouchableOpacity
-                    key={prot.id}
+                    key={p.id}
+                    style={[styles.optionRow, isSelected && styles.optionRowSelected]}
+                    onPress={() => toggleProtein(p.id)}
                     activeOpacity={0.7}
-                    onPress={() => toggleProtein(prot.id)}
-                    style={[styles.addonRow, isChecked && styles.addonRowActive]}
                   >
-                    <View style={styles.addonLeft}>
-                      <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
-                        {isChecked && <Text style={styles.checkmark}>✓</Text>}
+                    <View style={styles.optionLeft}>
+                      <View style={[styles.checkbox, isSelected && styles.checkboxActive]}>
+                        {isSelected && <Text style={styles.checkmark}>✓</Text>}
                       </View>
-                      <Text style={styles.addonName}>{prot.name}</Text>
+                      <Text style={styles.optionName}>{p.name}</Text>
                     </View>
-                    <Text style={styles.addonPrice}>+₦{prot.price.toLocaleString()}</Text>
+                    <Text style={styles.addonPrice}>+₦{p.price.toLocaleString()}</Text>
                   </TouchableOpacity>
                 )
               })}
             </View>
 
-            {/* Sides Addons */}
+            {/* Sides */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Delicious Sides</Text>
-              <Text style={styles.sectionSubtitle}>Add tasty extras</Text>
-              {SIDE_ADDONS.map((side) => {
-                const isChecked = selectedSides.includes(side.id)
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Add Sides & Shawarma</Text>
+                <Text style={styles.optionalTag}>OPTIONAL</Text>
+              </View>
+              {SIDE_ADDONS.map((s) => {
+                const isSelected = selectedSides.includes(s.id)
                 return (
                   <TouchableOpacity
-                    key={side.id}
+                    key={s.id}
+                    style={[styles.optionRow, isSelected && styles.optionRowSelected]}
+                    onPress={() => toggleSide(s.id)}
                     activeOpacity={0.7}
-                    onPress={() => toggleSide(side.id)}
-                    style={[styles.addonRow, isChecked && styles.addonRowActive]}
                   >
-                    <View style={styles.addonLeft}>
-                      <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
-                        {isChecked && <Text style={styles.checkmark}>✓</Text>}
+                    <View style={styles.optionLeft}>
+                      <View style={[styles.checkbox, isSelected && styles.checkboxActive]}>
+                        {isSelected && <Text style={styles.checkmark}>✓</Text>}
                       </View>
-                      <Text style={styles.addonName}>{side.name}</Text>
+                      <Text style={styles.optionName}>{s.name}</Text>
                     </View>
-                    <Text style={styles.addonPrice}>+₦{side.price.toLocaleString()}</Text>
+                    <Text style={styles.addonPrice}>+₦{s.price.toLocaleString()}</Text>
                   </TouchableOpacity>
                 )
               })}
             </View>
 
-            {/* Cooking Instructions */}
+            {/* Drinks */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Special Chef Instructions</Text>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Add Chilled Drink or Zobo</Text>
+                <Text style={styles.optionalTag}>OPTIONAL</Text>
+              </View>
+              {DRINK_ADDONS.map((d) => {
+                const isSelected = selectedDrinks.includes(d.id)
+                return (
+                  <TouchableOpacity
+                    key={d.id}
+                    style={[styles.optionRow, isSelected && styles.optionRowSelected]}
+                    onPress={() => toggleDrink(d.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.optionLeft}>
+                      <View style={[styles.checkbox, isSelected && styles.checkboxActive]}>
+                        {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                      </View>
+                      <Text style={styles.optionName}>{d.name}</Text>
+                    </View>
+                    <Text style={styles.addonPrice}>+₦{d.price.toLocaleString()}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            {/* Takeaway Packaging Option */}
+            <View style={styles.section}>
+              <TouchableOpacity
+                style={[styles.packRow, includeTakeawayPack && styles.packRowSelected]}
+                onPress={() => setIncludeTakeawayPack((prev) => !prev)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.optionLeft}>
+                  <View style={[styles.checkbox, includeTakeawayPack && styles.checkboxActive]}>
+                    {includeTakeawayPack && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                  <View>
+                    <Text style={styles.packTitle}>🥡 Include Take Away Pack</Text>
+                    <Text style={styles.packSubtitle}>Hygienic sealed takeaway container</Text>
+                  </View>
+                </View>
+                <Text style={styles.addonPrice}>+₦{PACKAGING_ADDON.price}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Special Instructions */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Kitchen Note / Instructions</Text>
               <TextInput
-                placeholder="e.g. Extra spicy, no onions, package pepper soup separately..."
+                style={styles.instructionInput}
+                placeholder="e.g. Pack pepper sauce separately, extra hot..."
                 placeholderTextColor={COLORS.textMuted}
                 value={specialInstructions}
                 onChangeText={setSpecialInstructions}
-                style={styles.input}
                 multiline
                 numberOfLines={2}
               />
             </View>
+
+            {/* Quantity Selector */}
+            <View style={styles.quantitySection}>
+              <Text style={styles.quantityLabel}>Portion Quantity</Text>
+              <View style={styles.stepperContainer}>
+                <TouchableOpacity
+                  style={styles.stepperBtn}
+                  onPress={() => setQuantity((prev) => Math.max(1, prev - 1))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.stepperBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.stepperCount}>{quantity}</Text>
+                <TouchableOpacity
+                  style={styles.stepperBtn}
+                  onPress={() => setQuantity((prev) => prev + 1)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.stepperBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </ScrollView>
 
-          {/* Bottom Bar: Qty + Add Button */}
+          {/* Bottom Action Bar */}
           <View style={styles.footer}>
-            <View style={styles.qtyContainer}>
-              <TouchableOpacity
-                onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-                style={styles.qtyBtn}
-              >
-                <Text style={styles.qtyBtnText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.qtyText}>{quantity}</Text>
-              <TouchableOpacity
-                onPress={() => setQuantity((q) => q + 1)}
-                style={styles.qtyBtn}
-              >
-                <Text style={styles.qtyBtnText}>+</Text>
-              </TouchableOpacity>
+            <View style={styles.footerPriceCol}>
+              <Text style={styles.footerPriceLabel}>TOTAL PRICE</Text>
+              <Text style={styles.footerPriceVal}>₦{grandTotal.toLocaleString()}</Text>
             </View>
 
-            <TouchableOpacity activeOpacity={0.85} onPress={handleConfirm} style={styles.addCta}>
-              <Text style={styles.addCtaText}>Add to Cart • ₦{grandTotal.toLocaleString()}</Text>
+            <TouchableOpacity style={styles.addTrayBtn} onPress={handleConfirm} activeOpacity={0.85}>
+              <Text style={styles.addTrayBtnText}>
+                Add to Tray • ₦{grandTotal.toLocaleString()}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -202,16 +341,16 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.75)",
     justifyContent: "flex-end",
   },
   modalContent: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    maxHeight: "90%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "88%",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     overflow: "hidden",
@@ -230,95 +369,140 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 14,
     right: 14,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.65)",
     alignItems: "center",
     justifyContent: "center",
   },
   closeBtnText: {
     color: COLORS.white,
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "bold",
   },
-  scrollBody: {
-    padding: 16,
-    paddingBottom: 24,
+  badgeContainer: {
+    position: "absolute",
+    bottom: 12,
+    left: 14,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  headerInfo: {
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
-    paddingBottom: 14,
+  badgeText: {
+    color: COLORS.accentGreen,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  scrollArea: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  titleSection: {
     marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
+    paddingBottom: 14,
   },
-  title: {
+  titleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  itemName: {
     fontSize: 20,
     fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 4,
+    flex: 1,
+    marginRight: 10,
   },
-  price: {
+  itemPrice: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "900",
     color: COLORS.primary,
-    marginBottom: 8,
   },
-  desc: {
+  itemDesc: {
     fontSize: 13,
     color: COLORS.textSecondary,
     lineHeight: 18,
-    marginBottom: 8,
-  },
-  prepTime: {
-    fontSize: 12,
-    color: COLORS.accentGreen,
-    fontWeight: "700",
   },
   section: {
-    marginBottom: 20,
+    marginBottom: 18,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
     color: COLORS.white,
-    marginBottom: 2,
+    letterSpacing: 0.3,
   },
-  sectionSubtitle: {
-    fontSize: 11,
+  requiredTag: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: COLORS.accentOrange,
+  },
+  optionalTag: {
+    fontSize: 10,
+    fontWeight: "700",
     color: COLORS.textMuted,
-    marginBottom: 10,
   },
-  addonRow: {
+  optionRow: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "center",
     backgroundColor: COLORS.surfaceLight,
-    padding: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
-  addonRowActive: {
+  optionRowSelected: {
     borderColor: COLORS.primary,
     backgroundColor: "rgba(212, 175, 55, 0.08)",
   },
-  addonLeft: {
+  optionLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
+  radioCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: COLORS.textMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioCircleActive: {
+    borderColor: COLORS.primary,
+  },
+  radioInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
+  },
   checkbox: {
     width: 20,
     height: 20,
-    borderRadius: 6,
+    borderRadius: 5,
     borderWidth: 1.5,
     borderColor: COLORS.textMuted,
     alignItems: "center",
     justifyContent: "center",
   },
-  checkboxChecked: {
+  checkboxActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
@@ -327,76 +511,131 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
   },
-  addonName: {
+  optionName: {
     fontSize: 13,
-    color: COLORS.white,
     fontWeight: "600",
+    color: COLORS.white,
+  },
+  freeTag: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: COLORS.accentGreen,
   },
   addonPrice: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "800",
     color: COLORS.primary,
   },
-  input: {
+  packRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     backgroundColor: COLORS.surfaceLight,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    borderRadius: 12,
-    color: COLORS.white,
-    padding: 12,
+  },
+  packRowSelected: {
+    borderColor: COLORS.accentGreen,
+    backgroundColor: COLORS.accentGreenLight,
+  },
+  packTitle: {
     fontSize: 13,
-    minHeight: 60,
-    textAlignVertical: "top",
+    fontWeight: "800",
+    color: COLORS.white,
   },
-  footer: {
+  packSubtitle: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  instructionInput: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: COLORS.white,
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    marginTop: 6,
+  },
+  quantitySection: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
+    paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: COLORS.cardBorder,
-    backgroundColor: COLORS.surface,
-    gap: 12,
+    borderTopColor: COLORS.divider,
+    marginBottom: 20,
   },
-  qtyContainer: {
+  quantityLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: COLORS.white,
+  },
+  stepperContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surfaceLight,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    gap: 10,
   },
-  qtyBtn: {
-    width: 28,
-    height: 28,
+  stepperBtn: {
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
   },
-  qtyBtnText: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: COLORS.primary,
-  },
-  qtyText: {
-    fontSize: 15,
-    fontWeight: "800",
+  stepperBtnText: {
     color: COLORS.white,
-    minWidth: 18,
-    textAlign: "center",
+    fontSize: 18,
+    fontWeight: "800",
   },
-  addCta: {
+  stepperCount: {
+    paddingHorizontal: 14,
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.divider,
+    backgroundColor: COLORS.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  footerPriceCol: {
+    justifyContent: "center",
+  },
+  footerPriceLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: COLORS.textMuted,
+    letterSpacing: 0.5,
+  },
+  footerPriceVal: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: COLORS.white,
+  },
+  addTrayBtn: {
     flex: 1,
     backgroundColor: COLORS.primary,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  addCtaText: {
+  addTrayBtnText: {
+    color: "#000",
     fontSize: 14,
     fontWeight: "900",
-    color: "#000",
   },
 })

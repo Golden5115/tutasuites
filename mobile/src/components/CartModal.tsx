@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
+  Alert,
 } from "react-native"
 import { COLORS } from "../constants/theme"
 
@@ -17,6 +18,8 @@ interface CartModalProps {
   onUpdateQty: (id: string, delta: number) => void
   onCheckout: (orderData: any) => void
   currentAddress: string
+  fulfillmentMode: "DELIVERY" | "PICKUP"
+  onFulfillmentChange: (mode: "DELIVERY" | "PICKUP") => void
 }
 
 export const CartModal: React.FC<CartModalProps> = ({
@@ -26,192 +29,288 @@ export const CartModal: React.FC<CartModalProps> = ({
   onUpdateQty,
   onCheckout,
   currentAddress,
+  fulfillmentMode,
+  onFulfillmentChange,
 }) => {
   const [customerName, setCustomerName] = useState("Guest Customer")
   const [customerPhone, setCustomerPhone] = useState("08012345678")
-  const [address, setAddress] = useState(currentAddress)
+  const [deliveryAddress, setDeliveryAddress] = useState(currentAddress)
   const [notes, setNotes] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState("TRANSFER") // TRANSFER, CARD, COD
+  const [paymentMethod, setPaymentMethod] = useState<"TRANSFER" | "POS_COUNTER">("TRANSFER")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
-  const deliveryFee = 1200
-  const serviceFee = 200
-  const grandTotal = subtotal + deliveryFee + serviceFee
+  const deliveryFee = fulfillmentMode === "DELIVERY" ? 1200 : 0
+  const grandTotal = subtotal + deliveryFee
 
   const handlePlaceOrder = () => {
-    if (cartItems.length === 0) return
-    if (!customerPhone || !address) {
-      alert("Please enter your phone number and delivery address.")
+    if (cartItems.length === 0) {
+      Alert.alert("Tray is Empty", "Please add some delicious meals from the menu first.")
       return
     }
 
-    onCheckout({
-      type: "MEAL",
-      items: cartItems,
-      customerName,
-      customerPhone,
-      deliveryAddress: address,
-      deliveryArea: address.includes("Magboro") ? "Magboro" : address.includes("Ibafo") ? "Ibafo" : "Mowe",
-      deliveryNotes: notes,
-      paymentMethod,
-      subtotal,
-      deliveryFee,
-      serviceFee,
-      totalAmount: grandTotal,
-    })
-    onClose()
+    if (!customerPhone.trim()) {
+      Alert.alert("Missing Phone", "Please enter your phone number so we can notify you when your meal is ready.")
+      return
+    }
+
+    if (fulfillmentMode === "DELIVERY" && !deliveryAddress.trim()) {
+      Alert.alert("Missing Delivery Address", "Please enter your delivery address or estate in Mowe.")
+      return
+    }
+
+    setIsSubmitting(true)
+    setTimeout(() => {
+      setIsSubmitting(false)
+      onCheckout({
+        type: "GRAB_AND_GO",
+        fulfillmentMode,
+        items: cartItems,
+        customerName: customerName.trim() || "Guest Customer",
+        customerPhone: customerPhone.trim(),
+        deliveryAddress: fulfillmentMode === "DELIVERY" ? deliveryAddress : "Tuta Express Counter (Pickup)",
+        deliveryArea: fulfillmentMode === "DELIVERY" ? (deliveryAddress.includes("Ibafo") ? "Ibafo" : "Mowe") : "Pickup Counter",
+        notes,
+        paymentMethod,
+        subtotal,
+        deliveryFee,
+        totalAmount: grandTotal,
+      })
+      onClose()
+    }, 400)
   }
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.backdrop}>
+      <View style={styles.overlay}>
         <View style={styles.modalContent}>
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.headerTitle}>Your Cart</Text>
-              <Text style={styles.headerSub}>Tuta Suites In-House Restaurant</Text>
+              <Text style={styles.title}>Your Tuta Tray</Text>
+              <Text style={styles.subtitle}>
+                {cartItems.length} item{cartItems.length === 1 ? "" : "s"} selected
+              </Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
+              <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {cartItems.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>🍽</Text>
-              <Text style={styles.emptyTitle}>Your cart is empty</Text>
-              <Text style={styles.emptySub}>Add some delicious meals from our kitchen!</Text>
+          <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+            {/* Fulfillment Mode Toggle */}
+            <View style={styles.switchBox}>
+              <TouchableOpacity
+                style={[styles.switchOption, fulfillmentMode === "PICKUP" && styles.switchOptionActive]}
+                onPress={() => onFulfillmentChange("PICKUP")}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.switchText, fulfillmentMode === "PICKUP" && styles.switchTextActive]}>
+                  🛍️ Counter Pickup (Free)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.switchOption, fulfillmentMode === "DELIVERY" && styles.switchOptionActive]}
+                onPress={() => onFulfillmentChange("DELIVERY")}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.switchText, fulfillmentMode === "DELIVERY" && styles.switchTextActive]}>
+                  🛵 Doorstep Delivery (+₦1,200)
+                </Text>
+              </TouchableOpacity>
             </View>
-          ) : (
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-              {/* Delivery ETA Pill */}
-              <View style={styles.etaPill}>
-                <Text style={styles.etaIcon}>⚡</Text>
-                <View>
-                  <Text style={styles.etaTitle}>Estimated Delivery Time: 25 - 35 mins</Text>
-                  <Text style={styles.etaSub}>Packed hot from Tuta kitchen in thermal box</Text>
-                </View>
-              </View>
 
-              {/* Items List */}
-              <View style={styles.itemsSection}>
-                <Text style={styles.sectionHeader}>ORDER ITEMS ({cartItems.length})</Text>
+            {/* Cart Items List */}
+            {cartItems.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyIcon}>🍽️</Text>
+                <Text style={styles.emptyTitle}>Your tray is empty</Text>
+                <Text style={styles.emptySubtitle}>
+                  Explore the menu to add hot Jollof, crispy turkey, swallow, or chilled zobo.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.itemsList}>
                 {cartItems.map((item) => (
-                  <View key={item.id} style={styles.itemRow}>
-                    <View style={styles.itemInfo}>
-                      <Text style={styles.itemName}>{item.name}</Text>
-                      {item.proteins?.length > 0 && (
-                        <Text style={styles.itemAddons}>+ {item.proteins.join(", ")}</Text>
-                      )}
-                      {item.sides?.length > 0 && (
-                        <Text style={styles.itemAddons}>+ {item.sides.join(", ")}</Text>
-                      )}
-                      {item.instructions?.length > 0 && (
-                        <Text style={styles.itemNotes}>Note: {item.instructions}</Text>
-                      )}
-                      <Text style={styles.itemPrice}>₦{item.totalPrice.toLocaleString()}</Text>
+                  <View key={item.id} style={styles.itemCard}>
+                    <View style={styles.itemHeader}>
+                      <View style={styles.itemInfo}>
+                        <Text style={styles.itemName}>{item.name}</Text>
+                        <Text style={styles.itemPrice}>₦{item.totalPrice.toLocaleString()}</Text>
+                      </View>
+
+                      {/* Quantity Stepper */}
+                      <View style={styles.stepper}>
+                        <TouchableOpacity
+                          style={styles.stepperBtn}
+                          onPress={() => onUpdateQty(item.id, -1)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.stepperBtnText}>−</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.stepperValue}>{item.quantity}</Text>
+                        <TouchableOpacity
+                          style={styles.stepperBtn}
+                          onPress={() => onUpdateQty(item.id, 1)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.stepperBtnText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
 
-                    <View style={styles.qtyControl}>
-                      <TouchableOpacity
-                        onPress={() => onUpdateQty(item.id, -1)}
-                        style={styles.qtyBtn}
-                      >
-                        <Text style={styles.qtyBtnText}>-</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.qtyNum}>{item.quantity}</Text>
-                      <TouchableOpacity
-                        onPress={() => onUpdateQty(item.id, 1)}
-                        style={styles.qtyBtn}
-                      >
-                        <Text style={styles.qtyBtnText}>+</Text>
-                      </TouchableOpacity>
+                    {/* Add-ons details */}
+                    <View style={styles.addonsList}>
+                      {item.soup && (
+                        <Text style={styles.addonTag}>🥣 Soup: {item.soup}</Text>
+                      )}
+                      {item.proteins && item.proteins.length > 0 && (
+                        <Text style={styles.addonTag}>🍗 Protein: {item.proteins.join(", ")}</Text>
+                      )}
+                      {item.sides && item.sides.length > 0 && (
+                        <Text style={styles.addonTag}>🍟 Sides: {item.sides.join(", ")}</Text>
+                      )}
+                      {item.drinks && item.drinks.length > 0 && (
+                        <Text style={styles.addonTag}>🥤 Drink: {item.drinks.join(", ")}</Text>
+                      )}
+                      {item.includePack && (
+                        <Text style={styles.addonTag}>🥡 Takeaway pack included</Text>
+                      )}
+                      {item.instructions ? (
+                        <Text style={styles.instructionNote}>Note: "{item.instructions}"</Text>
+                      ) : null}
                     </View>
                   </View>
                 ))}
               </View>
+            )}
 
-              {/* Delivery Details */}
+            {/* Customer Details Section */}
+            {cartItems.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionHeader}>DELIVERY DESTINATION</Text>
-                <TextInput
-                  placeholder="Street Address & Estate / Apartment No"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={address}
-                  onChangeText={setAddress}
-                  style={styles.input}
-                />
-                <TextInput
-                  placeholder="Phone Number for Dispatch Rider"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={customerPhone}
-                  onChangeText={setCustomerPhone}
-                  keyboardType="phone-pad"
-                  style={styles.input}
-                />
-                <TextInput
-                  placeholder="Gate / Delivery Instructions (e.g. Call on arrival)"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={notes}
-                  onChangeText={setNotes}
-                  style={styles.input}
-                />
-              </View>
+                <Text style={styles.sectionHeader}>Customer & Contact</Text>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Your Name</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={customerName}
+                    onChangeText={setCustomerName}
+                    placeholder="Enter your name"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                </View>
 
-              {/* Payment Methods */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Phone Number (For SMS / WhatsApp alert)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={customerPhone}
+                    onChangeText={setCustomerPhone}
+                    placeholder="080 1234 5678"
+                    placeholderTextColor={COLORS.textMuted}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+
+                {fulfillmentMode === "DELIVERY" && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Delivery Address / Estate</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={deliveryAddress}
+                      onChangeText={setDeliveryAddress}
+                      placeholder="e.g. Flat 3, Assurance CDA Estate, Mowe"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  </View>
+                )}
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Order Note (Optional)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={notes}
+                    onChangeText={setNotes}
+                    placeholder="Any special packaging instructions..."
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                </View>
+              </View>
+            )}
+
+            {/* Payment Method */}
+            {cartItems.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionHeader}>PAYMENT METHOD</Text>
-                <View style={styles.payMethods}>
-                  {[
-                    { id: "TRANSFER", label: "Bank Transfer", icon: "🏦" },
-                    { id: "CARD", label: "Debit Card", icon: "💳" },
-                    { id: "COD", label: "Cash on Delivery", icon: "💵" },
-                  ].map((p) => {
-                    const isSelected = paymentMethod === p.id
-                    return (
-                      <TouchableOpacity
-                        key={p.id}
-                        onPress={() => setPaymentMethod(p.id)}
-                        style={[styles.payBtn, isSelected && styles.payBtnActive]}
-                      >
-                        <Text style={styles.payIcon}>{p.icon}</Text>
-                        <Text style={[styles.payLabel, isSelected && styles.payLabelActive]}>
-                          {p.label}
-                        </Text>
-                      </TouchableOpacity>
-                    )
-                  })}
+                <Text style={styles.sectionHeader}>Payment Option</Text>
+                <TouchableOpacity
+                  style={[styles.paymentRow, paymentMethod === "TRANSFER" && styles.paymentRowActive]}
+                  onPress={() => setPaymentMethod("TRANSFER")}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.radio}>
+                    {paymentMethod === "TRANSFER" && <View style={styles.radioDot} />}
+                  </View>
+                  <View style={styles.paymentInfo}>
+                    <Text style={styles.paymentTitle}>Instant Bank Transfer</Text>
+                    <Text style={styles.paymentSubtitle}>Direct transfer to Tuta Grab & Go dedicated account</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.paymentRow, paymentMethod === "POS_COUNTER" && styles.paymentRowActive]}
+                  onPress={() => setPaymentMethod("POS_COUNTER")}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.radio}>
+                    {paymentMethod === "POS_COUNTER" && <View style={styles.radioDot} />}
+                  </View>
+                  <View style={styles.paymentInfo}>
+                    <Text style={styles.paymentTitle}>
+                      {fulfillmentMode === "PICKUP" ? "Pay at Counter (POS / Cash)" : "Pay on Delivery (POS / Cash)"}
+                    </Text>
+                    <Text style={styles.paymentSubtitle}>Pay when collecting meal or upon arrival of rider</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Order Summary Breakdown */}
+            {cartItems.length > 0 && (
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Bill Breakdown</Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Meals & Addons Subtotal</Text>
+                  <Text style={styles.summaryVal}>₦{subtotal.toLocaleString()}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>
+                    {fulfillmentMode === "PICKUP" ? "Counter Pickup" : "Express Dispatch Rider"}
+                  </Text>
+                  <Text style={[styles.summaryVal, fulfillmentMode === "PICKUP" && styles.freeText]}>
+                    {fulfillmentMode === "PICKUP" ? "FREE" : `₦${deliveryFee.toLocaleString()}`}
+                  </Text>
+                </View>
+                <View style={[styles.summaryRow, styles.summaryTotalRow]}>
+                  <Text style={styles.totalLabel}>TOTAL AMOUNT</Text>
+                  <Text style={styles.totalVal}>₦{grandTotal.toLocaleString()}</Text>
                 </View>
               </View>
+            )}
+          </ScrollView>
 
-              {/* Bill Breakdown */}
-              <View style={styles.billCard}>
-                <View style={styles.billRow}>
-                  <Text style={styles.billLabel}>Item Subtotal</Text>
-                  <Text style={styles.billValue}>₦{subtotal.toLocaleString()}</Text>
-                </View>
-                <View style={styles.billRow}>
-                  <Text style={styles.billLabel}>Delivery Fee</Text>
-                  <Text style={styles.billValue}>₦{deliveryFee.toLocaleString()}</Text>
-                </View>
-                <View style={styles.billRow}>
-                  <Text style={styles.billLabel}>Packaging & Service</Text>
-                  <Text style={styles.billValue}>₦{serviceFee.toLocaleString()}</Text>
-                </View>
-                <View style={[styles.billRow, styles.totalRow]}>
-                  <Text style={styles.totalLabel}>Total Amount</Text>
-                  <Text style={styles.totalValue}>₦{grandTotal.toLocaleString()}</Text>
-                </View>
-              </View>
-            </ScrollView>
-          )}
-
+          {/* Action Footer */}
           {cartItems.length > 0 && (
             <View style={styles.footer}>
-              <TouchableOpacity activeOpacity={0.85} onPress={handlePlaceOrder} style={styles.orderBtn}>
-                <Text style={styles.orderBtnText}>
-                  Place Order • ₦{grandTotal.toLocaleString()}
+              <TouchableOpacity
+                style={[styles.checkoutBtn, isSubmitting && styles.checkoutBtnDisabled]}
+                onPress={handlePlaceOrder}
+                disabled={isSubmitting}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.checkoutBtnText}>
+                  {isSubmitting
+                    ? "Placing Order..."
+                    : `Confirm & Order • ₦${grandTotal.toLocaleString()}`}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -223,36 +322,38 @@ export const CartModal: React.FC<CartModalProps> = ({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.75)",
+    backgroundColor: "rgba(0,0,0,0.8)",
     justifyContent: "flex-end",
   },
   modalContent: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    maxHeight: "92%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "90%",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
+    overflow: "hidden",
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
+    borderBottomColor: COLORS.divider,
   },
-  headerTitle: {
+  title: {
     fontSize: 18,
     fontWeight: "900",
     color: COLORS.white,
   },
-  headerSub: {
-    fontSize: 11,
-    color: COLORS.primary,
-    fontWeight: "700",
+  subtitle: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   closeBtn: {
     width: 32,
@@ -262,232 +363,282 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  closeText: {
+  closeBtnText: {
     color: COLORS.white,
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  scrollArea: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  switchBox: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surfaceLight,
+    padding: 3,
+    borderRadius: 10,
+    marginBottom: 14,
+  },
+  switchOption: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  switchOptionActive: {
+    backgroundColor: COLORS.surfaceElevated,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGold,
+  },
+  switchText: {
+    fontSize: 11,
     fontWeight: "700",
+    color: COLORS.textMuted,
+  },
+  switchTextActive: {
+    color: COLORS.primary,
+    fontWeight: "900",
   },
   emptyContainer: {
-    padding: 40,
     alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
   },
   emptyIcon: {
     fontSize: 48,
     marginBottom: 12,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "800",
     color: COLORS.white,
-    marginBottom: 4,
   },
-  emptySub: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    textAlign: "center",
-  },
-  scrollBody: {
-    padding: 16,
-    paddingBottom: 20,
-  },
-  etaPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.accentGreenLight,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(16, 185, 129, 0.3)",
-    marginBottom: 16,
-    gap: 10,
-  },
-  etaIcon: {
-    fontSize: 20,
-  },
-  etaTitle: {
+  emptySubtitle: {
     fontSize: 13,
-    fontWeight: "800",
-    color: COLORS.accentGreen,
-  },
-  etaSub: {
-    fontSize: 11,
     color: COLORS.textSecondary,
+    textAlign: "center",
+    marginTop: 6,
+    maxWidth: 260,
   },
-  section: {
-    marginBottom: 18,
+  itemsList: {
+    marginBottom: 16,
   },
-  itemsSection: {
-    marginBottom: 18,
-  },
-  sectionHeader: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: COLORS.textMuted,
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  itemRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  itemCard: {
     backgroundColor: COLORS.surfaceLight,
     borderRadius: 12,
     padding: 12,
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
+  itemHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   itemInfo: {
     flex: 1,
-    paddingRight: 10,
+    marginRight: 10,
   },
   itemName: {
     fontSize: 14,
     fontWeight: "800",
     color: COLORS.white,
-    marginBottom: 2,
-  },
-  itemAddons: {
-    fontSize: 11,
-    color: COLORS.primary,
-    marginBottom: 1,
-  },
-  itemNotes: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-    fontStyle: "italic",
-    marginBottom: 2,
   },
   itemPrice: {
     fontSize: 13,
     fontWeight: "800",
-    color: COLORS.white,
+    color: COLORS.primary,
     marginTop: 2,
   },
-  qtyControl: {
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  stepperBtn: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepperBtnText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  stepperValue: {
+    paddingHorizontal: 8,
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  addonsList: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.05)",
+    gap: 3,
+  },
+  addonTag: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+  },
+  instructionNote: {
+    fontSize: 11,
+    color: COLORS.accentOrange,
+    fontStyle: "italic",
+    marginTop: 2,
+  },
+  section: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  sectionHeader: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: COLORS.white,
+    marginBottom: 10,
+    letterSpacing: 0.3,
+  },
+  inputGroup: {
+    marginBottom: 10,
+  },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  textInput: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: COLORS.white,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  paymentRow: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surface,
     borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    paddingHorizontal: 4,
-    gap: 6,
   },
-  qtyBtn: {
-    width: 26,
-    height: 26,
+  paymentRowActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(212, 175, 55, 0.08)",
+  },
+  radio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: COLORS.textMuted,
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 10,
   },
-  qtyBtnText: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: COLORS.primary,
+  radioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
   },
-  qtyNum: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: COLORS.white,
-    minWidth: 14,
-    textAlign: "center",
-  },
-  input: {
-    backgroundColor: COLORS.surfaceLight,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    borderRadius: 12,
-    color: COLORS.white,
-    padding: 12,
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  payMethods: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  payBtn: {
+  paymentInfo: {
     flex: 1,
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
   },
-  payBtnActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: "rgba(212, 175, 55, 0.15)",
-  },
-  payIcon: {
-    fontSize: 16,
-    marginBottom: 2,
-  },
-  payLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: COLORS.textSecondary,
-  },
-  payLabelActive: {
-    color: COLORS.primary,
+  paymentTitle: {
+    fontSize: 13,
     fontWeight: "800",
-  },
-  billCard: {
-    backgroundColor: COLORS.surfaceLight,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    gap: 8,
-  },
-  billRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  billLabel: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-  billValue: {
-    fontSize: 12,
-    fontWeight: "700",
     color: COLORS.white,
   },
-  totalRow: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.cardBorder,
-    paddingTop: 8,
+  paymentSubtitle: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
+  summaryCard: {
+    backgroundColor: COLORS.surfaceLight,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  summaryTitle: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: COLORS.white,
+    marginBottom: 10,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  summaryVal: {
+    fontSize: 12,
+    color: COLORS.white,
+    fontWeight: "700",
+  },
+  freeText: {
+    color: COLORS.accentGreen,
+  },
+  summaryTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.divider,
+    paddingTop: 8,
+    marginTop: 4,
+  },
   totalLabel: {
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "900",
     color: COLORS.white,
   },
-  totalValue: {
+  totalVal: {
     fontSize: 16,
     fontWeight: "900",
     color: COLORS.primary,
   },
   footer: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.cardBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     backgroundColor: COLORS.surface,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.divider,
   },
-  orderBtn: {
+  checkoutBtn: {
     backgroundColor: COLORS.primary,
-    paddingVertical: 15,
-    borderRadius: 16,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  orderBtnText: {
+  checkoutBtnDisabled: {
+    opacity: 0.6,
+  },
+  checkoutBtnText: {
+    color: "#000",
     fontSize: 14,
     fontWeight: "900",
-    color: "#000",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
 })

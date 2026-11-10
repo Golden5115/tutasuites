@@ -5,22 +5,23 @@ import { COLORS } from "../constants/theme"
 interface CategoryBarProps {
   selectedCategory: string
   onSelectCategory: (category: string) => void
-  onCourierPress: () => void
+  onBuildComboPress: () => void
 }
 
 const CATEGORIES = [
-  { id: "All", label: "🔥 All", icon: "🔥" },
-  { id: "Rice", label: "🍱 Rice", icon: "🍱" },
-  { id: "Soups", label: "🍲 Soups & Swallow", icon: "🍲" },
-  { id: "Pepper Soup", label: "🥣 Pepper Soup", icon: "🥣" },
-  { id: "Breakfast", label: "🍳 Breakfast", icon: "🍳" },
-  { id: "Drinks", label: "🍹 Drinks", icon: "🍹" },
+  { id: "All", label: "🔥 All Menu" },
+  { id: "Rice", label: "🍚 Rice Dishes (₦500)" },
+  { id: "Swallow & Soup", label: "🍲 Swallow & Soup" },
+  { id: "Proteins", label: "🍗 Proteins" },
+  { id: "Sides & Shawarma", label: "🌯 Shawarma & Sides" },
+  { id: "Drinks", label: "🥤 Drinks & Zobo" },
+  { id: "Extras", label: "📦 Packs & Extras" },
 ]
 
 export const CategoryBar: React.FC<CategoryBarProps> = ({
   selectedCategory,
   onSelectCategory,
-  onCourierPress,
+  onBuildComboPress,
 }) => {
   return (
     <View style={styles.wrapper}>
@@ -29,16 +30,16 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.container}
       >
-        {/* Special Glow Pill for Tuta Courier (Glovo "Anything" style) */}
+        {/* Quick Plate Builder Highlight Pill */}
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={onCourierPress}
-          style={[styles.pill, styles.courierPill]}
+          onPress={onBuildComboPress}
+          style={[styles.pill, styles.comboPill]}
         >
-          <Text style={styles.courierIcon}>📦</Text>
-          <Text style={styles.courierText}>Send Package</Text>
-          <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>NEW</Text>
+          <Text style={styles.comboIcon}>⚡</Text>
+          <Text style={styles.comboText}>Build Your Plate</Text>
+          <View style={styles.comboBadge}>
+            <Text style={styles.comboBadgeText}>POPULAR</Text>
           </View>
         </TouchableOpacity>
 
@@ -64,7 +65,7 @@ export const CategoryBar: React.FC<CategoryBarProps> = ({
 
 const styles = StyleSheet.create({
   wrapper: {
-    paddingVertical: 10,
+    paddingVertical: 8,
     backgroundColor: COLORS.background,
   },
   container: {
@@ -87,36 +88,36 @@ const styles = StyleSheet.create({
   },
   pillText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
     color: COLORS.textSecondary,
   },
   selectedPillText: {
     color: "#000",
-    fontWeight: "800",
+    fontWeight: "900",
   },
-  courierPill: {
-    backgroundColor: "rgba(16, 185, 129, 0.15)",
-    borderColor: "rgba(16, 185, 129, 0.4)",
+  comboPill: {
+    backgroundColor: COLORS.accentOrangeLight,
+    borderColor: COLORS.accentOrange,
     gap: 4,
   },
-  courierIcon: {
+  comboIcon: {
     fontSize: 13,
   },
-  courierText: {
+  comboText: {
     fontSize: 12,
     fontWeight: "800",
-    color: COLORS.accentGreen,
+    color: COLORS.accentOrange,
   },
-  newBadge: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 4,
+  comboBadge: {
+    backgroundColor: COLORS.accentOrange,
+    paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 6,
+    borderRadius: 4,
     marginLeft: 2,
   },
-  newBadgeText: {
-    fontSize: 8,
-    fontWeight: "900",
+  comboBadgeText: {
     color: "#000",
+    fontSize: 9,
+    fontWeight: "900",
   },
 })

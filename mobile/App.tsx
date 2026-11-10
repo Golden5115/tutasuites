@@ -16,11 +16,10 @@ import { CategoryBar } from "./src/components/CategoryBar"
 import { MealCard } from "./src/components/MealCard"
 import { MealDetailModal } from "./src/components/MealDetailModal"
 import { CartModal } from "./src/components/CartModal"
-import { CourierTab } from "./src/components/CourierTab"
 import { LiveTrackingModal } from "./src/components/LiveTrackingModal"
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"MEALS" | "COURIER">("MEALS")
+  const [fulfillmentMode, setFulfillmentMode] = useState<"DELIVERY" | "PICKUP">("PICKUP")
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [searchQuery, setSearchQuery] = useState("")
   const [currentAddress, setCurrentAddress] = useState("Mowe, Assurance CDA Estate")
@@ -34,21 +33,23 @@ export default function App() {
 
   // Active Order Tracking State
   const [activeOrder, setActiveOrder] = useState<any>({
-    id: "TUTA-ORD-729104",
-    trackingId: "TUTA-ORD-729104",
-    type: "MEAL",
+    id: "TGG-1048",
+    trackingId: "TGG-1048",
+    type: "GRAB_AND_GO",
+    fulfillmentMode: "PICKUP",
     items: [
-      { name: "Special Jollof Rice & Plantain", quantity: 1, totalPrice: 2500 },
-      { name: "Crispy Grilled Turkey", quantity: 1, totalPrice: 6000 },
+      { name: "Smokey Jollof Rice", quantity: 1, totalPrice: 500 },
+      { name: "Crispy Grilled Turkey", quantity: 1, totalPrice: 4000 },
+      { name: "Chilled Zobo Special", quantity: 1, totalPrice: 1000 },
+      { name: "Take Away Pack", quantity: 1, totalPrice: 300 },
     ],
-    deliveryAddress: "Assurance CDA Estate, Mowe",
-    deliveryArea: "Mowe",
-    subtotal: 8500,
-    deliveryFee: 1200,
-    serviceFee: 200,
-    totalAmount: 9900,
-    estimatedMinutes: 24,
-    status: "IN_TRANSIT",
+    deliveryAddress: "Tuta Express Counter (Pickup)",
+    deliveryArea: "Pickup Counter",
+    subtotal: 5800,
+    deliveryFee: 0,
+    totalAmount: 5800,
+    estimatedMinutes: 10,
+    status: "PREPARING",
   })
   const [showTrackingModal, setShowTrackingModal] = useState(false)
 
@@ -61,13 +62,13 @@ export default function App() {
     return matchesCat && matchesSearch
   })
 
-  // Quick Add handler
+  // Quick Add handler (adds single unit)
   const handleQuickAdd = (item: MenuItem) => {
     setCartItems((prev) => {
-      const existing = prev.find((i) => i.itemId === item.id)
+      const existing = prev.find((i) => i.itemId === item.id && !i.proteins?.length && !i.soup)
       if (existing) {
         return prev.map((i) =>
-          i.itemId === item.id
+          i.id === existing.id
             ? { ...i, quantity: i.quantity + 1, totalPrice: (i.quantity + 1) * i.unitPrice }
             : i
         )
@@ -85,6 +86,8 @@ export default function App() {
           image: item.image,
           proteins: [],
           sides: [],
+          drinks: [],
+          includePack: true,
           instructions: "",
         },
       ]
@@ -112,54 +115,61 @@ export default function App() {
           }
           return item
         })
-        .filter(Boolean)
+        .filter(Boolean) as any[]
     )
   }
 
   // Handle Checkout
-  const handleCheckout = (orderData: any) => {
-    const trackingId = `TUTA-ORD-${Math.floor(100000 + Math.random() * 900000)}`
+  const handleCheckout = async (orderData: any) => {
+    const trackingCode = `TGG-${Math.floor(1000 + Math.random() * 9000)}`
     const newOrder = {
       ...orderData,
-      id: trackingId,
-      trackingId,
-      estimatedMinutes: 28,
+      id: trackingCode,
+      trackingId: trackingCode,
+      estimatedMinutes: fulfillmentMode === "PICKUP" ? 10 : 25,
       status: "PREPARING",
     }
+
+    // Try posting to Next.js API endpoint in the background
+    try {
+      fetch("/api/mobile/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trackingId: trackingCode,
+          orderType: fulfillmentMode === "PICKUP" ? "TAKEAWAY" : "DELIVERY",
+          customerName: orderData.customerName,
+          customerPhone: orderData.customerPhone,
+          items: orderData.items,
+          totalAmount: orderData.totalAmount,
+          notes: orderData.notes,
+        }),
+      }).catch(() => {})
+    } catch {}
+
     setActiveOrder(newOrder)
     setCartItems([])
     setShowTrackingModal(true)
   }
 
-  // Handle Courier Booking
-  const handleBookCourier = (courierData: any) => {
-    const trackingId = `TUTA-DEL-${Math.floor(100000 + Math.random() * 900000)}`
-    const newOrder = {
-      id: trackingId,
-      trackingId,
-      type: "COURIER",
-      items: [{ name: `${courierData.category}: ${courierData.itemDescription}`, quantity: 1, totalPrice: courierData.fare }],
-      deliveryAddress: courierData.recipientAddress,
-      deliveryArea: courierData.dropoffHub,
-      subtotal: courierData.fare,
-      deliveryFee: 0,
-      serviceFee: 0,
-      totalAmount: courierData.fare,
-      estimatedMinutes: 35,
-      status: "RIDER_PICKED",
-    }
-    setActiveOrder(newOrder)
-    setShowTrackingModal(true)
+  // Open Plate Builder with first rice dish
+  const handleOpenPlateBuilder = () => {
+    const jollof = MENU_ITEMS.find((i) => i.id === "rice-jollof") || MENU_ITEMS[0]
+    setSelectedItem(jollof)
+    setShowDetailModal(true)
   }
 
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0)
+  const cartSubtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
 
-      {/* Main Header */}
+      {/* Main Header with Fulfillment Toggle & Search */}
       <Header
+        fulfillmentMode={fulfillmentMode}
+        onFulfillmentChange={setFulfillmentMode}
         currentAddress={currentAddress}
         onAddressPress={() => setShowAddressPicker(true)}
         searchQuery={searchQuery}
@@ -168,95 +178,110 @@ export default function App() {
         onCartPress={() => setShowCartModal(true)}
       />
 
-      {/* Top Main Mode Switcher: Food vs Courier */}
-      <View style={styles.modeTabs}>
+      {/* Horizontal Category Bar */}
+      <CategoryBar
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        onBuildComboPress={handleOpenPlateBuilder}
+      />
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
+        {/* "Build Your Plate" Hero Banner (Sweetgreen / Chipotle style) */}
         <TouchableOpacity
-          onPress={() => setActiveTab("MEALS")}
-          style={[styles.modeTab, activeTab === "MEALS" && styles.modeTabActive]}
+          activeOpacity={0.9}
+          onPress={handleOpenPlateBuilder}
+          style={styles.comboBanner}
         >
-          <Text style={[styles.modeTabText, activeTab === "MEALS" && styles.modeTabTextActive]}>
-            🍲 Order Food & Drinks
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setActiveTab("COURIER")}
-          style={[styles.modeTab, activeTab === "COURIER" && styles.modeTabActive]}
-        >
-          <Text style={[styles.modeTabText, activeTab === "COURIER" && styles.modeTabTextActive]}>
-            📦 Send Package / Courier
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Body Content */}
-      {activeTab === "MEALS" ? (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-          {/* Category Horizontal Filter */}
-          <CategoryBar
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
-            onCourierPress={() => setActiveTab("COURIER")}
-          />
-
-          {/* Promo Hero Banner */}
-          <View style={styles.promoBanner}>
-            <View style={styles.promoTextWrap}>
-              <View style={styles.promoPill}>
-                <Text style={styles.promoPillText}>HOT & FRESH</Text>
+          <View style={styles.comboBannerContent}>
+            <View style={styles.comboTagRow}>
+              <View style={styles.comboTag}>
+                <Text style={styles.comboTagText}>⚡ CHEF'S COMBO</Text>
               </View>
-              <Text style={styles.promoTitle}>Tuta Restaurant & Lounge</Text>
-              <Text style={styles.promoSub}>
-                Piping hot local & continental cuisine delivered to your doorstep in 25–35 mins.
-              </Text>
+              <Text style={styles.comboSpeed}>Ready in 5-10m</Text>
             </View>
-            <Text style={styles.promoEmoji}>🥘</Text>
-          </View>
 
-          {/* Section Header */}
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>
-              {selectedCategory === "All" ? "Popular Meals & Dishes" : `${selectedCategory} Menu`}
+            <Text style={styles.comboBannerTitle}>Build Your Custom Plate</Text>
+            <Text style={styles.comboBannerSub}>
+              Choose Rice (₦500) + Grilled Turkey/Chicken + Dodo + Chilled Zobo in seconds.
             </Text>
-            <Text style={styles.sectionCount}>{filteredItems.length} available</Text>
-          </View>
 
-          {/* Meals Grid */}
-          <View style={styles.mealsGrid}>
-            {filteredItems.map((item) => (
-              <MealCard
-                key={item.id}
-                item={item}
-                onPress={(selected) => {
-                  setSelectedItem(selected)
-                  setShowDetailModal(true)
-                }}
-                onQuickAdd={handleQuickAdd}
-              />
-            ))}
+            <View style={styles.comboCtaRow}>
+              <View style={styles.comboCtaBtn}>
+                <Text style={styles.comboCtaBtnText}>Tap to Build Plate ❯</Text>
+              </View>
+              <Text style={styles.comboPricingHint}>From ₦500/portion</Text>
+            </View>
           </View>
-        </ScrollView>
-      ) : (
-        <CourierTab onBookCourier={handleBookCourier} />
+        </TouchableOpacity>
+
+        {/* Section Header */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>
+            {selectedCategory === "All" ? "Official Tuta Grab & Go Menu" : `${selectedCategory}`}
+          </Text>
+          <Text style={styles.sectionCountBadge}>{filteredItems.length} items</Text>
+        </View>
+
+        {/* Menu Items Grid */}
+        <View style={styles.itemsGrid}>
+          {filteredItems.map((item) => (
+            <MealCard
+              key={item.id}
+              item={item}
+              onPress={(selected) => {
+                setSelectedItem(selected)
+                setShowDetailModal(true)
+              }}
+              onQuickAdd={handleQuickAdd}
+            />
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* Floating Bottom Tray Checkout Bar */}
+      {cartItems.length > 0 && (
+        <View style={styles.floatingTrayContainer}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => setShowCartModal(true)}
+            style={styles.floatingTrayBar}
+          >
+            <View style={styles.trayLeft}>
+              <View style={styles.trayBadge}>
+                <Text style={styles.trayBadgeText}>{totalCartCount}</Text>
+              </View>
+              <View>
+                <Text style={styles.trayTitle}>View Your Tray</Text>
+                <Text style={styles.traySubtitle}>
+                  {fulfillmentMode === "PICKUP" ? "🛍️ Pickup at Counter" : "🛵 Doorstep Delivery"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.trayRight}>
+              <Text style={styles.trayTotal}>₦{cartSubtotal.toLocaleString()}</Text>
+              <Text style={styles.trayCheckoutArrow}>Checkout ❯</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
       )}
 
-      {/* Floating Active Order Tracker Pill (Chowdeck Signature) */}
-      {activeOrder && (
+      {/* Floating Active Order Tracker Pill */}
+      {activeOrder && cartItems.length === 0 && (
         <TouchableOpacity
           activeOpacity={0.9}
           onPress={() => setShowTrackingModal(true)}
           style={styles.floatingOrderPill}
         >
           <View style={styles.floatingLeft}>
-            <View style={styles.riderBikeBadge}>
-              <Text style={styles.riderBikeText}>🏍</Text>
-            </View>
+            <View style={styles.orderStatusDot} />
             <View>
               <Text style={styles.floatingTitle}>
-                {activeOrder.type === "MEAL" ? "Tuta Kitchen Order" : "Courier Dispatch"}
+                Order #{activeOrder.trackingId || activeOrder.id}
               </Text>
               <Text style={styles.floatingEta}>
-                ⚡ {activeOrder.status === "DELIVERED" ? "Delivered safely!" : `Arriving in ~${activeOrder.estimatedMinutes || 20}m`}
+                ⚡ {activeOrder.fulfillmentMode === "PICKUP" ? "Ready at Counter in ~" : "Arriving in ~"}
+                {activeOrder.estimatedMinutes || 10}m
               </Text>
             </View>
           </View>
@@ -266,7 +291,7 @@ export default function App() {
         </TouchableOpacity>
       )}
 
-      {/* Modals */}
+      {/* Customizer Modal */}
       <MealDetailModal
         item={selectedItem}
         visible={showDetailModal}
@@ -274,6 +299,7 @@ export default function App() {
         onAddToCart={handleCustomizedAdd}
       />
 
+      {/* Cart Tray Modal */}
       <CartModal
         visible={showCartModal}
         onClose={() => setShowCartModal(false)}
@@ -281,8 +307,11 @@ export default function App() {
         onUpdateQty={handleUpdateQty}
         onCheckout={handleCheckout}
         currentAddress={currentAddress}
+        fulfillmentMode={fulfillmentMode}
+        onFulfillmentChange={setFulfillmentMode}
       />
 
+      {/* Live Order Tracking Modal */}
       <LiveTrackingModal
         visible={showTrackingModal}
         onClose={() => setShowTrackingModal(false)}
@@ -293,7 +322,7 @@ export default function App() {
       <Modal visible={showAddressPicker} transparent animationType="fade">
         <View style={styles.addressModalBackdrop}>
           <View style={styles.addressModalCard}>
-            <Text style={styles.addressModalTitle}>Select Delivery Hub / Town</Text>
+            <Text style={styles.addressModalTitle}>Select Your Delivery Area</Text>
             {[
               "Mowe, Assurance CDA Estate",
               "Mowe Bus Stop / Expressway",
@@ -301,7 +330,6 @@ export default function App() {
               "Ibafo Police Station / Town",
               "Arepo, Journalists Estate",
               "OPIC Plaza / Berger Border",
-              "Sagamu Interchange",
             ].map((addr) => (
               <TouchableOpacity
                 key={addr}
@@ -335,196 +363,246 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  modeTabs: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    gap: 8,
-    backgroundColor: COLORS.background,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
-  },
-  modeTab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 12,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-  modeTabActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  modeTabText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: COLORS.textSecondary,
-  },
-  modeTabTextActive: {
-    color: "#000",
-    fontWeight: "900",
-  },
   scrollBody: {
-    paddingBottom: 90,
+    paddingBottom: 110,
   },
-  promoBanner: {
+  comboBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 16,
+    borderRadius: 18,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryDark,
+    overflow: "hidden",
+  },
+  comboBannerContent: {
+    padding: 16,
+    backgroundColor: "rgba(212, 175, 55, 0.05)",
+  },
+  comboTagRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginHorizontal: 16,
-    marginTop: 6,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 20,
-    backgroundColor: "rgba(212, 175, 55, 0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(212, 175, 55, 0.3)",
+    marginBottom: 8,
   },
-  promoTextWrap: {
-    flex: 1,
-  },
-  promoPill: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  comboTag: {
+    backgroundColor: COLORS.accentOrange,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 6,
-    alignSelf: "flex-start",
-    marginBottom: 4,
   },
-  promoPillText: {
-    fontSize: 9,
-    fontWeight: "900",
+  comboTagText: {
     color: "#000",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
-  promoTitle: {
-    fontSize: 16,
+  comboSpeed: {
+    color: COLORS.accentGreen,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  comboBannerTitle: {
+    fontSize: 18,
     fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 2,
+    marginBottom: 4,
   },
-  promoSub: {
-    fontSize: 11,
+  comboBannerSub: {
+    fontSize: 12,
     color: COLORS.textSecondary,
-    lineHeight: 15,
+    lineHeight: 17,
+    marginBottom: 12,
   },
-  promoEmoji: {
-    fontSize: 42,
-    marginLeft: 8,
-  },
-  sectionRow: {
+  comboCtaRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+  },
+  comboCtaBtn: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  comboCtaBtnText: {
+    color: "#000",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  comboPricingHint: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: "700",
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "900",
     color: COLORS.white,
+    letterSpacing: 0.3,
   },
-  sectionCount: {
-    fontSize: 12,
+  sectionCountBadge: {
+    fontSize: 11,
     color: COLORS.textMuted,
+    fontWeight: "700",
   },
-  mealsGrid: {
+  itemsGrid: {
     paddingHorizontal: 16,
+  },
+  floatingTrayContainer: {
+    position: "absolute",
+    bottom: 16,
+    left: 16,
+    right: 16,
+  },
+  floatingTrayBar: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  trayLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  trayBadge: {
+    backgroundColor: "#000",
+    borderRadius: 14,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trayBadgeText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  trayTitle: {
+    color: "#000",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  traySubtitle: {
+    color: "rgba(0,0,0,0.7)",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  trayRight: {
+    alignItems: "flex-end",
+  },
+  trayTotal: {
+    color: "#000",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  trayCheckoutArrow: {
+    color: "#000",
+    fontSize: 11,
+    fontWeight: "800",
   },
   floatingOrderPill: {
     position: "absolute",
-    bottom: 20,
+    bottom: 16,
     left: 16,
     right: 16,
     backgroundColor: COLORS.surface,
-    borderRadius: 18,
-    padding: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1.5,
-    borderColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
+    borderColor: COLORS.cardBorderGold,
   },
   floatingLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  riderBikeBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  riderBikeText: {
-    fontSize: 18,
+  orderStatusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.accentGreen,
   },
   floatingTitle: {
-    fontSize: 13,
-    fontWeight: "800",
     color: COLORS.white,
+    fontSize: 12,
+    fontWeight: "800",
   },
   floatingEta: {
+    color: COLORS.primary,
     fontSize: 11,
     fontWeight: "700",
-    color: COLORS.accentGreen,
   },
   trackCtaPill: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    backgroundColor: COLORS.surfaceLight,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   trackCtaText: {
-    fontSize: 11,
+    color: COLORS.white,
+    fontSize: 10,
     fontWeight: "900",
-    color: "#000",
   },
   addressModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.8)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   addressModalCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 16,
+    padding: 18,
+    width: "100%",
+    maxWidth: 360,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   addressModalTitle: {
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 15,
+    fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 16,
-    textAlign: "center",
+    marginBottom: 14,
   },
   addrRow: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-    backgroundColor: COLORS.surfaceLight,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginBottom: 6,
   },
   addrRowActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: "rgba(212, 175, 55, 0.15)",
+    backgroundColor: COLORS.surfaceLight,
   },
   addrPin: {
     fontSize: 14,
-    marginRight: 8,
+    marginRight: 10,
   },
   addrText: {
     fontSize: 13,
@@ -537,14 +615,12 @@ const styles = StyleSheet.create({
   },
   closeAddrBtn: {
     marginTop: 10,
-    padding: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
     alignItems: "center",
-    backgroundColor: COLORS.surfaceLight,
   },
   closeAddrText: {
-    color: COLORS.white,
-    fontSize: 13,
+    color: COLORS.textMuted,
+    fontSize: 12,
     fontWeight: "700",
   },
 })

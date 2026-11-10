@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-nativ
 import { COLORS } from "../constants/theme"
 
 interface HeaderProps {
+  fulfillmentMode: "DELIVERY" | "PICKUP"
+  onFulfillmentChange: (mode: "DELIVERY" | "PICKUP") => void
   currentAddress: string
   onAddressPress: () => void
   searchQuery: string
@@ -12,6 +14,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  fulfillmentMode,
+  onFulfillmentChange,
   currentAddress,
   onAddressPress,
   searchQuery,
@@ -21,41 +25,108 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   return (
     <View style={styles.container}>
-      {/* Top Bar: Location & Cart */}
+      {/* Brand & Cart Row */}
       <View style={styles.topRow}>
-        <TouchableOpacity activeOpacity={0.8} onPress={onAddressPress} style={styles.locationContainer}>
-          <Text style={styles.locationLabel}>DELIVER TO</Text>
-          <View style={styles.locationPill}>
-            <Text style={styles.locationText} numberOfLines={1}>
-              📍 {currentAddress}
-            </Text>
-            <Text style={styles.locationArrow}>▾</Text>
+        <View style={styles.brandContainer}>
+          <View style={styles.brandTitleRow}>
+            <View style={styles.pulseDot} />
+            <Text style={styles.brandTitle}>TUTA GRAB & GO</Text>
+            <View style={styles.expressBadge}>
+              <Text style={styles.expressBadgeText}>EXPRESS</Text>
+            </View>
           </View>
-        </TouchableOpacity>
-
-        <View style={styles.topRightActions}>
-          {/* Estimated Time Badge */}
-          <View style={styles.timeBadge}>
-            <Text style={styles.timeText}>⚡ 25-35m</Text>
-          </View>
-
-          {/* Cart Icon / Badge */}
-          <TouchableOpacity activeOpacity={0.8} onPress={onCartPress} style={styles.cartBtn}>
-            <Text style={styles.cartIcon}>🛍</Text>
-            {cartCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{cartCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          <Text style={styles.brandSubtitle}>Hot fresh meals ready in 5–15 mins</Text>
         </View>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={onCartPress}
+          style={styles.cartButton}
+        >
+          <Text style={styles.cartIcon}>🛍️</Text>
+          {cartCount > 0 && (
+            <View style={styles.cartBadge}>
+              <Text style={styles.cartBadgeText}>{cartCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Search Input */}
+      {/* Fulfillment Switch: Delivery vs Pickup */}
+      <View style={styles.switchContainer}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => onFulfillmentChange("DELIVERY")}
+          style={[
+            styles.switchBtn,
+            fulfillmentMode === "DELIVERY" && styles.switchBtnActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.switchBtnText,
+              fulfillmentMode === "DELIVERY" && styles.switchBtnTextActive,
+            ]}
+          >
+            🛵 Delivery to You
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => onFulfillmentChange("PICKUP")}
+          style={[
+            styles.switchBtn,
+            fulfillmentMode === "PICKUP" && styles.switchBtnActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.switchBtnText,
+              fulfillmentMode === "PICKUP" && styles.switchBtnTextActive,
+            ]}
+          >
+            🛍️ Counter Pickup (Skip Queue)
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Location / Pickup Notice Bar */}
+      {fulfillmentMode === "DELIVERY" ? (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={onAddressPress}
+          style={styles.locationBar}
+        >
+          <Text style={styles.locationIcon}>📍</Text>
+          <View style={styles.locationInfo}>
+            <Text style={styles.locationLabel}>DELIVERING TO</Text>
+            <Text style={styles.locationAddress} numberOfLines={1}>
+              {currentAddress}
+            </Text>
+          </View>
+          <Text style={styles.locationChangeBtn}>Change ▾</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.pickupBar}>
+          <Text style={styles.pickupIcon}>🏬</Text>
+          <View style={styles.pickupInfo}>
+            <Text style={styles.pickupLabel}>PICKUP COUNTER</Text>
+            <Text style={styles.pickupLocation} numberOfLines={1}>
+              Tuta Grab & Go Express Counter · Mowe
+            </Text>
+          </View>
+          <View style={styles.pickupTimeTag}>
+            <Text style={styles.pickupTimeText}>⚡ 5-10m</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Search Input Bar */}
       <View style={styles.searchBar}>
         <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
-          placeholder="Search Jollof rice, Pepper soup, Catfish..."
+          placeholder="Search Jollof, Turkey, Shawarma, Zobo..."
           placeholderTextColor={COLORS.textMuted}
           value={searchQuery}
           onChangeText={onSearchChange}
@@ -74,8 +145,8 @@ export const Header: React.FC<HeaderProps> = ({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
     backgroundColor: COLORS.background,
   },
   topRow: {
@@ -84,55 +155,51 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  locationContainer: {
+  brandContainer: {
     flex: 1,
-    marginRight: 12,
   },
-  locationLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: COLORS.primary,
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  locationPill: {
+  brandTitleRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  locationText: {
-    fontSize: 14,
-    fontWeight: "700",
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.accentGreen,
+    marginRight: 8,
+  },
+  brandTitle: {
+    fontSize: 18,
+    fontWeight: "900",
     color: COLORS.white,
-    maxWidth: 200,
+    letterSpacing: 0.5,
   },
-  locationArrow: {
-    fontSize: 14,
-    color: COLORS.primary,
-    marginLeft: 4,
-  },
-  topRightActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  timeBadge: {
-    backgroundColor: COLORS.accentGreenLight,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 12,
+  expressBadge: {
+    backgroundColor: COLORS.accentOrangeLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
     borderWidth: 1,
-    borderColor: "rgba(16, 185, 129, 0.3)",
+    borderColor: COLORS.accentOrange,
   },
-  timeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: COLORS.accentGreen,
+  expressBadgeText: {
+    color: COLORS.accentOrange,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
-  cartBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.surface,
+  brandSubtitle: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  cartButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.surfaceLight,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -142,46 +209,149 @@ const styles = StyleSheet.create({
   cartIcon: {
     fontSize: 18,
   },
-  badge: {
+  cartBadge: {
     position: "absolute",
-    top: -2,
-    right: -2,
+    top: -4,
+    right: -4,
     backgroundColor: COLORS.primary,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
   },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: "900",
+  cartBadgeText: {
     color: "#000",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  switchContainer: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surface,
+    padding: 3,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  switchBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 9,
+  },
+  switchBtnActive: {
+    backgroundColor: COLORS.surfaceElevated,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGold,
+  },
+  switchBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.textMuted,
+  },
+  switchBtnTextActive: {
+    color: COLORS.primary,
+  },
+  locationBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  locationIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  locationInfo: {
+    flex: 1,
+  },
+  locationLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: COLORS.accentGreen,
+    letterSpacing: 0.5,
+  },
+  locationAddress: {
+    fontSize: 12,
+    color: COLORS.white,
+    fontWeight: "600",
+  },
+  locationChangeBtn: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: "700",
+  },
+  pickupBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  pickupIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  pickupInfo: {
+    flex: 1,
+  },
+  pickupLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: COLORS.primary,
+    letterSpacing: 0.5,
+  },
+  pickupLocation: {
+    fontSize: 12,
+    color: COLORS.white,
+    fontWeight: "600",
+  },
+  pickupTimeTag: {
+    backgroundColor: COLORS.accentGreenLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  pickupTimeText: {
+    color: COLORS.accentGreen,
+    fontSize: 11,
+    fontWeight: "800",
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surface,
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    height: 42,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   searchIcon: {
     fontSize: 14,
     marginRight: 8,
+    opacity: 0.6,
   },
   searchInput: {
     flex: 1,
     color: COLORS.white,
     fontSize: 13,
-    padding: 0,
+    paddingVertical: 0,
   },
   clearIcon: {
-    fontSize: 12,
     color: COLORS.textMuted,
-    paddingHorizontal: 4,
+    fontSize: 13,
+    paddingHorizontal: 6,
   },
 })

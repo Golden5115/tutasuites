@@ -1,67 +1,73 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-// Fallback menu matching Tuta Suites catalog
-const FALLBACK_MENU = [
-  // Rice Dishes
-  { id: "rice-1", name: "Jollof Rice & Plantain", price: 2500, category: "Rice Dishes", desc: "Signature firewood-smoked jollof rice served with golden fried plantains.", prepTime: "20 mins", image: "/dsc_1006.jpg" },
-  { id: "rice-2", name: "Special Fried Rice", price: 2750, category: "Rice Dishes", desc: "Wok-tossed seasoned rice with sweet corn, carrots, liver, and bell peppers.", prepTime: "25 mins", image: "/dsc_0982.jpg" },
-  { id: "rice-3", name: "Asun Fried Rice", price: 4000, category: "Rice Dishes", desc: "Spicy basmati rice tossed with tender peppery goat meat chunks.", prepTime: "25 mins", image: "/dsc_1002.jpg" },
-  { id: "rice-4", name: "Village Rice (Native Jollof)", price: 3500, category: "Rice Dishes", desc: "Traditional palm oil jollof cooked with dried fish, crayfish, and scent leaves.", prepTime: "30 mins", image: "/dsc_1005.jpg" },
+// Official Tuta Grab & Go fallback catalog
+const FALLBACK_GRAB_AND_GO_MENU = [
+  // Rice
+  { id: "rice-jollof", name: "Jollof Rice", price: 500, category: "Rice", desc: "Signature firewood-smoked long-grain jollof rice.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?w=600&auto=format&fit=crop" },
+  { id: "rice-fried", name: "Fried Rice", price: 500, category: "Rice", desc: "Fluffy wok-tossed seasoned rice with sweet corn, carrots, and spring onions.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop" },
+  { id: "rice-native", name: "Native Rice", price: 700, category: "Rice", desc: "Aromatic palm oil jollof rice cooked with smoked fish, crayfish, and scent leaves.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop" },
+  { id: "rice-white", name: "White Rice", price: 500, category: "Rice", desc: "Steamed fluffy white rice portion.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1516684732162-798a0062be99?w=600&auto=format&fit=crop" },
 
-  // Soups & Swallow
-  { id: "soup-1", name: "Egusi Soup Special", price: 2500, category: "Soups & Swallow", desc: "Rich melon seed soup prepared with bitter leaf, stock fish, and crayfish.", prepTime: "25 mins", image: "/dsc_0990.jpg" },
-  { id: "soup-2", name: "Ila Alasepo (Okro Special)", price: 2500, category: "Soups & Swallow", desc: "Fresh diced okro soup enriched with seafood, prawns, and crabs.", prepTime: "20 mins", image: "/dsc_1018.jpg" },
-  { id: "soup-3", name: "Efo Riro (Vegetable Soup)", price: 2500, category: "Soups & Swallow", desc: "Savory Lagos-style spinach soup infused with locust beans and assorted meats.", prepTime: "25 mins", image: "/dsc_0986.jpg" },
-  { id: "swallow-1", name: "Amala / Eba / Poundo Portion", price: 1000, category: "Soups & Swallow", desc: "Smooth, piping hot swallow of your choice.", prepTime: "10 mins", image: "/dsc_0996.jpg" },
+  // Swallow & Soups
+  { id: "swallow-eba", name: "Eba", price: 500, category: "Swallow & Soup", desc: "Yellow cassava swallow served with choice of Egusi or Efo Riro.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1547592180-85f173990554?w=600&auto=format&fit=crop" },
+  { id: "swallow-semo", name: "Semo", price: 500, category: "Swallow & Soup", desc: "Silky semovita swallow served with choice of Egusi or Efo Riro.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop" },
+  { id: "swallow-poundo", name: "Poundo", price: 700, category: "Swallow & Soup", desc: "Pounded yam portion served with savory soup.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1514944298352-7e181e1a5349?w=600&auto=format&fit=crop" },
+  { id: "soup-egusi", name: "Egusi Soup", price: 0, category: "Swallow & Soup", desc: "Rich melon seed soup with bitter leaf and crayfish.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1547592180-85f173990554?w=600&auto=format&fit=crop" },
+  { id: "soup-efo", name: "Efo Riro", price: 0, category: "Swallow & Soup", desc: "Savory Lagos-style spinach vegetable soup.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1514944298352-7e181e1a5349?w=600&auto=format&fit=crop" },
 
-  // Pepper Soups & Grills
-  { id: "pepper-1", name: "Catfish Point & Kill Pepper Soup", price: 11000, category: "Pepper Soup & Grills", desc: "Whole fresh catfish simmered in aromatic indigenous herbs and spices.", prepTime: "35 mins", image: "/dsc_1019.jpg" },
-  { id: "pepper-2", name: "Goat Meat Pepper Soup", price: 7000, category: "Pepper Soup & Grills", desc: "Tender goat meat bites in zesty broth with scent leaves.", prepTime: "25 mins", image: "/dsc_1022.jpg" },
-  { id: "pepper-3", name: "Crispy Grilled Turkey", price: 6000, category: "Pepper Soup & Grills", desc: "Succulent turkey marinated in chili glaze and grilled to perfection.", prepTime: "20 mins", image: "/dsc_1025.jpg" },
-  { id: "pepper-4", name: "Peppered Chicken", price: 4000, category: "Pepper Soup & Grills", desc: "Crispy fried chicken tossed in sweet and spicy pepper sauce.", prepTime: "15 mins", image: "/dsc_1032.jpg" },
+  // Proteins
+  { id: "prot-turkey", name: "Turkey", price: 4000, category: "Proteins", desc: "Crispy grilled peppered turkey wing portion.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1527477378408-1bc43f07a4e9?w=600&auto=format&fit=crop" },
+  { id: "prot-chicken", name: "Chicken", price: 3000, category: "Proteins", desc: "Crispy fried peppered chicken piece.", prepTime: "5 - 10 mins", image: "https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=600&auto=format&fit=crop" },
+  { id: "prot-fish", name: "Fish", price: 1500, category: "Proteins", desc: "Fried seasoned fish portion.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop" },
+  { id: "prot-goat", name: "Goat Meat", price: 1000, category: "Proteins", desc: "Tender spicy goat meat chunk.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=600&auto=format&fit=crop" },
+  { id: "prot-beef", name: "Beef", price: 500, category: "Proteins", desc: "Seasoned beef chunk.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop" },
+  { id: "prot-egg", name: "Egg", price: 500, category: "Proteins", desc: "Boiled or fried egg.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop" },
 
-  // Breakfast & Light Bites
-  { id: "bf-1", name: "Noodles & Fried Egg", price: 4000, category: "Breakfast & Bites", desc: "Spicy stir-fried Indomie noodles garnished with peppers and 2 eggs.", prepTime: "15 mins", image: "/dsc_0982.jpg" },
-  { id: "bf-2", name: "Tea, Bread & Sausage", price: 3000, category: "Breakfast & Bites", desc: "Fresh Agege bread with fried omelette and hot chocolate or coffee.", prepTime: "15 mins", image: "/dsc_1006.jpg" },
-  { id: "bf-3", name: "Fried Plantain (Dodo)", price: 1000, category: "Sides & Extras", desc: "Sweet, ripe fried plantain discs.", prepTime: "10 mins", image: "/dsc_1002.jpg" },
+  // Sides & Shawarma
+  { id: "side-shawarma", name: "Shawarma", price: 2500, category: "Sides & Shawarma", desc: "Double-wrapped juicy chicken or beef shawarma with sausages.", prepTime: "10 - 15 mins", image: "https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=600&auto=format&fit=crop" },
+  { id: "side-plantain", name: "Plantain (Dodo)", price: 500, category: "Sides & Shawarma", desc: "Sweet golden ripe fried plantains.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&auto=format&fit=crop" },
+  { id: "side-salad", name: "Salad", price: 500, category: "Sides & Shawarma", desc: "Fresh cabbage, carrot, and sweet corn salad with dressing.", prepTime: "5 mins", image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop" },
 
-  // Drinks & Beverages
-  { id: "bev-1", name: "Signature Tuta Chapman", price: 3000, category: "Drinks & Bar", desc: "Classic Nigerian cocktail with cucumber slices, lime, and Angostura bitters.", prepTime: "5 mins", image: "/dsc_1005.jpg" },
-  { id: "bev-2", name: "Chilled Heineken / Guinness", price: 2000, category: "Drinks & Bar", desc: "Ice-cold premium beer served in a frosted glass.", prepTime: "5 mins", image: "/dsc_0990.jpg" },
-  { id: "bev-3", name: "Fresh Juice / Energy Drink", price: 2000, category: "Drinks & Bar", desc: "Refreshing fruit juice or chilled energy beverage.", prepTime: "5 mins", image: "/dsc_1018.jpg" },
+  // Drinks
+  { id: "dr-zobo", name: "Zobo Special", price: 1000, category: "Drinks", desc: "Chilled pure hibiscus and ginger infusion.", prepTime: "2 mins", image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop" },
+  { id: "dr-juice", name: "Juice", price: 1500, category: "Drinks", desc: "Chilled fruit juice pack.", prepTime: "2 mins", image: "https://images.unsplash.com/photo-1600271886742-f049cd451bba?w=600&auto=format&fit=crop" },
+  { id: "dr-coke", name: "Coke", price: 500, category: "Drinks", desc: "Chilled Coca-Cola 50cl.", prepTime: "2 mins", image: "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&auto=format&fit=crop" },
+  { id: "dr-sprite", name: "Sprite", price: 500, category: "Drinks", desc: "Chilled Sprite 50cl.", prepTime: "2 mins", image: "https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?w=600&auto=format&fit=crop" },
+  { id: "dr-water-300", name: "Water (Bottle)", price: 300, category: "Drinks", desc: "Chilled bottled table water.", prepTime: "2 mins", image: "https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=600&auto=format&fit=crop" },
+
+  // Extras
+  { id: "extra-takeaway", name: "Take Away Pack", price: 300, category: "Extras", desc: "Hygienic sealed takeaway pack.", prepTime: "Instant", image: "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&auto=format&fit=crop" },
+  { id: "extra-water-200", name: "Water (Cup)", price: 200, category: "Extras", desc: "Sealed pure drinking water portion.", prepTime: "Instant", image: "https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=600&auto=format&fit=crop" },
 ]
 
 export async function GET() {
   try {
-    const [restaurantItems, barItems] = await Promise.all([
-      prisma.restaurantItem.findMany({ orderBy: { name: "asc" } }).catch(() => []),
-      prisma.barItem.findMany({ orderBy: { name: "asc" } }).catch(() => []),
-    ])
+    const grabAndGoDbItems: any[] = await prisma
+      .$queryRawUnsafe<any[]>(
+        `SELECT "id", "name", "price", "category", "stock", "isAvailable"
+         FROM "GrabAndGoItem"
+         WHERE "isAvailable" = true
+         ORDER BY "name" ASC`
+      )
+      .catch(() => [])
 
-    if (restaurantItems.length > 0 || barItems.length > 0) {
-      const items = [
-        ...restaurantItems.map((r) => ({
-          id: r.id,
-          name: r.name,
-          price: r.price,
-          category: r.category || "Meals",
-          desc: `Freshly prepared ${r.name} from Tuta Suites kitchen.`,
-          prepTime: "20 - 30 mins",
-          stock: r.stock,
-          image: "/dsc_1006.jpg",
-        })),
-        ...barItems.map((b) => ({
-          id: b.id,
-          name: b.name,
-          price: b.price,
-          category: "Drinks & Bar",
-          desc: `Chilled ${b.name} from Tuta Lounge.`,
-          prepTime: "5 - 10 mins",
-          stock: b.stock,
-          image: "/dsc_1005.jpg",
-        })),
-      ]
+    if (grabAndGoDbItems && grabAndGoDbItems.length > 0) {
+      const items = grabAndGoDbItems.map((item) => {
+        const fallback = FALLBACK_GRAB_AND_GO_MENU.find(
+          (f) => f.name.toLowerCase() === item.name.toLowerCase()
+        )
+        return {
+          id: item.id,
+          name: item.name,
+          price: Number(item.price),
+          category: item.category || fallback?.category || "Meals",
+          desc: fallback?.desc || `Freshly prepared ${item.name} from Tuta Grab & Go counter.`,
+          prepTime: fallback?.prepTime || "5 - 10 mins",
+          stock: item.stock,
+          image: fallback?.image || "https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?w=600&auto=format&fit=crop",
+        }
+      })
 
       const categories = Array.from(new Set(items.map((i) => i.category)))
 
@@ -73,15 +79,15 @@ export async function GET() {
       })
     }
   } catch (e) {
-    console.warn("Using fallback menu data:", e)
+    console.warn("Using fallback Grab & Go menu data:", e)
   }
 
   // Fallback
-  const categories = Array.from(new Set(FALLBACK_MENU.map((i) => i.category)))
+  const categories = Array.from(new Set(FALLBACK_GRAB_AND_GO_MENU.map((i) => i.category)))
   return NextResponse.json({
     success: true,
     source: "fallback",
     categories: ["All", ...categories],
-    items: FALLBACK_MENU,
+    items: FALLBACK_GRAB_AND_GO_MENU,
   })
 }
