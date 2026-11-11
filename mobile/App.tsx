@@ -5,10 +5,10 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  StatusBar,
   TouchableOpacity,
   Modal,
 } from "react-native"
+import { StatusBar } from "expo-status-bar"
 import { COLORS } from "./src/constants/theme"
 import { MENU_ITEMS, MenuItem } from "./src/constants/menuData"
 import { Header } from "./src/components/Header"
@@ -164,7 +164,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar style="light" />
 
       {/* Main Header with Fulfillment Toggle & Search */}
       <Header
