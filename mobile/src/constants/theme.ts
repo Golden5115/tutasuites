@@ -1,30 +1,64 @@
 export const COLORS = {
-  background: "#0A0B10",
-  surface: "#12141E",
-  surfaceLight: "#1A1D2B",
-  surfaceElevated: "#222638",
+  // Ultra-deep luxury backgrounds
+  background: "#08090D",
+  backgroundSecondary: "#0D0F15",
+  surface: "#11131B",
+  surfaceLight: "#181A25",
+  surfaceElevated: "#202434",
+  surfaceHighlight: "#282D42",
+
+  // Borders & Glassmorphism
   cardBorder: "rgba(255, 255, 255, 0.08)",
-  cardBorderGold: "rgba(212, 175, 55, 0.35)",
+  cardBorderSubtle: "rgba(255, 255, 255, 0.04)",
+  cardBorderGold: "rgba(230, 198, 101, 0.35)",
+  cardBorderGoldSubtle: "rgba(230, 198, 101, 0.15)",
 
-  // Tuta Grab & Go Signature Brands
-  primary: "#D4AF37", // Warm Gold
-  primaryLight: "#F3E5AB",
-  primaryDark: "#B38728",
+  // Tuta Royal Gold & Champagne Palette
+  primary: "#E6C665", // Radiant Royal Gold
+  primaryLight: "#F8EDCE", // Champagne
+  primaryDark: "#B89635", // Deep Burnished Gold
+  goldGlow: "rgba(230, 198, 101, 0.20)",
 
-  // Express Green (Chowdeck / Fast Casual Freshness)
-  accentGreen: "#10B981",
-  accentGreenDark: "#059669",
-  accentGreenLight: "rgba(16, 185, 129, 0.15)",
+  // Freshness & Speed Accents (Chowdeck / Fast-Casual Signature)
+  accentGreen: "#00C274", // Vibrant Mint/Emerald
+  accentGreenDark: "#009E5E",
+  accentGreenLight: "rgba(0, 194, 116, 0.14)",
 
-  // Warm Amber / Orange (Food appetite trigger)
-  accentOrange: "#F59E0B",
-  accentOrangeLight: "rgba(245, 158, 11, 0.15)",
+  // Appetizing Amber & Warm Accents
+  accentOrange: "#FF9F1C", // Juicy Warm Amber
+  accentOrangeDark: "#D97706",
+  accentOrangeLight: "rgba(255, 159, 28, 0.14)",
 
-  // Text & Neutrals
+  // High-Legibility Typography
   white: "#FFFFFF",
   textPrimary: "#FFFFFF",
-  textSecondary: "#A1A1AA",
-  textMuted: "#71717A",
-  divider: "rgba(255, 255, 255, 0.06)",
-  danger: "#EF4444",
+  textSecondary: "#A3A8B8",
+  textMuted: "#6B7280",
+  divider: "rgba(255, 255, 255, 0.07)",
+  danger: "#FF4757",
+  dangerLight: "rgba(255, 71, 87, 0.15)",
+}
+
+export const SHADOWS = {
+  card: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  floating: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  goldGlow: {
+    shadowColor: "#E6C665",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 6,
+  },
 }

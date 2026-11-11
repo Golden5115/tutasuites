@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   TextInput,
   Alert,
 } from "react-native"
-import { COLORS } from "../constants/theme"
+import { COLORS, SHADOWS } from "../constants/theme"
 
 interface CartModalProps {
   visible: boolean
@@ -43,7 +43,7 @@ export const CartModal: React.FC<CartModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<"TRANSFER" | "POS_COUNTER">("TRANSFER")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentUser) {
       if (currentUser.name) setCustomerName(currentUser.name)
       if (currentUser.phone) setCustomerPhone(currentUser.phone)
@@ -96,12 +96,17 @@ export const CartModal: React.FC<CartModalProps> = ({
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
+          {/* iOS Sheet Drag Handle */}
+          <View style={styles.sheetHandleContainer}>
+            <View style={styles.sheetHandle} />
+          </View>
+
           {/* Header */}
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>Your Tuta Tray</Text>
               <Text style={styles.subtitle}>
-                {cartItems.length} item{cartItems.length === 1 ? "" : "s"} selected
+                {cartItems.length} dish{cartItems.length === 1 ? "" : "es"} ready for ordering
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
@@ -138,13 +143,13 @@ export const CartModal: React.FC<CartModalProps> = ({
                 <Text style={styles.emptyIcon}>🍽️</Text>
                 <Text style={styles.emptyTitle}>Your tray is empty</Text>
                 <Text style={styles.emptySubtitle}>
-                  Explore the menu to add hot Jollof, crispy turkey, swallow, or chilled zobo.
+                  Explore our menu to add hot firewood Jollof, crispy turkey, swallow, or chilled zobo.
                 </Text>
               </View>
             ) : (
               <View style={styles.itemsList}>
                 {cartItems.map((item) => (
-                  <View key={item.id} style={styles.itemCard}>
+                  <View key={item.id} style={[styles.itemCard, SHADOWS.card]}>
                     <View style={styles.itemHeader}>
                       <View style={styles.itemInfo}>
                         <Text style={styles.itemName}>{item.name}</Text>
@@ -203,13 +208,16 @@ export const CartModal: React.FC<CartModalProps> = ({
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionHeader}>Customer & Contact</Text>
                   {currentUser ? (
-                    <Text style={styles.userBadgeText}>✓ Logged in</Text>
+                    <View style={styles.userBadge}>
+                      <Text style={styles.userBadgeText}>✓ Logged In</Text>
+                    </View>
                   ) : onOpenAuth ? (
                     <TouchableOpacity onPress={onOpenAuth} activeOpacity={0.8}>
                       <Text style={styles.loginHintLink}>Have account? Sign In ❯</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
+
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Your Name</Text>
                   <TextInput
@@ -222,7 +230,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Phone Number (For SMS / WhatsApp alert)</Text>
+                  <Text style={styles.inputLabel}>Phone Number (For WhatsApp / SMS alert)</Text>
                   <TextInput
                     style={styles.textInput}
                     value={customerPhone}
@@ -252,7 +260,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                     style={styles.textInput}
                     value={notes}
                     onChangeText={setNotes}
-                    placeholder="Any special packaging instructions..."
+                    placeholder="Any special packing instructions..."
                     placeholderTextColor={COLORS.textMuted}
                   />
                 </View>
@@ -268,7 +276,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                   onPress={() => setPaymentMethod("TRANSFER")}
                   activeOpacity={0.8}
                 >
-                  <View style={styles.radio}>
+                  <View style={[styles.radio, paymentMethod === "TRANSFER" && styles.radioActive]}>
                     {paymentMethod === "TRANSFER" && <View style={styles.radioDot} />}
                   </View>
                   <View style={styles.paymentInfo}>
@@ -282,7 +290,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                   onPress={() => setPaymentMethod("POS_COUNTER")}
                   activeOpacity={0.8}
                 >
-                  <View style={styles.radio}>
+                  <View style={[styles.radio, paymentMethod === "POS_COUNTER" && styles.radioActive]}>
                     {paymentMethod === "POS_COUNTER" && <View style={styles.radioDot} />}
                   </View>
                   <View style={styles.paymentInfo}>
@@ -312,7 +320,7 @@ export const CartModal: React.FC<CartModalProps> = ({
                   </Text>
                 </View>
                 <View style={[styles.summaryRow, styles.summaryTotalRow]}>
-                  <Text style={styles.totalLabel}>TOTAL AMOUNT</Text>
+                  <Text style={styles.totalLabel}>TOTAL TO PAY</Text>
                   <Text style={styles.totalVal}>₦{grandTotal.toLocaleString()}</Text>
                 </View>
               </View>
@@ -323,7 +331,7 @@ export const CartModal: React.FC<CartModalProps> = ({
           {cartItems.length > 0 && (
             <View style={styles.footer}>
               <TouchableOpacity
-                style={[styles.checkoutBtn, isSubmitting && styles.checkoutBtnDisabled]}
+                style={[styles.checkoutBtn, isSubmitting && styles.checkoutBtnDisabled, SHADOWS.card]}
                 onPress={handlePlaceOrder}
                 disabled={isSubmitting}
                 activeOpacity={0.85}
@@ -350,18 +358,29 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     height: "90%",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     overflow: "hidden",
   },
+  sheetHandleContainer: {
+    alignItems: "center",
+    paddingVertical: 8,
+    backgroundColor: COLORS.surface,
+  },
+  sheetHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
@@ -370,6 +389,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
     color: COLORS.white,
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 12,
@@ -383,6 +403,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceLight,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   closeBtnText: {
     color: COLORS.white,
@@ -398,14 +420,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: COLORS.surfaceLight,
     padding: 3,
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 14,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   switchOption: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 10,
   },
   switchOptionActive: {
     backgroundColor: COLORS.surfaceElevated,
@@ -447,8 +471,8 @@ const styles = StyleSheet.create({
   },
   itemCard: {
     backgroundColor: COLORS.surfaceLight,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
@@ -464,12 +488,12 @@ const styles = StyleSheet.create({
   },
   itemName: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "900",
     color: COLORS.white,
   },
   itemPrice: {
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "900",
     color: COLORS.primary,
     marginTop: 2,
   },
@@ -477,13 +501,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surface,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   stepperBtn: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -493,35 +517,42 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   stepperValue: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     color: COLORS.white,
     fontSize: 13,
     fontWeight: "800",
   },
   addonsList: {
-    marginTop: 8,
+    marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.05)",
+    borderTopColor: COLORS.divider,
     gap: 3,
   },
   addonTag: {
     fontSize: 11,
     color: COLORS.textSecondary,
+    fontWeight: "500",
   },
   instructionNote: {
     fontSize: 11,
     color: COLORS.accentOrange,
     fontStyle: "italic",
-    marginTop: 2,
+    marginTop: 3,
   },
   section: {
     backgroundColor: COLORS.surfaceLight,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
   },
   sectionHeader: {
     fontSize: 13,
@@ -529,16 +560,18 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     letterSpacing: 0.3,
   },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
+  userBadge: {
+    backgroundColor: COLORS.accentGreenLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(0, 194, 116, 0.3)",
   },
   userBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.accentGreen,
-    fontWeight: "800",
+    fontWeight: "900",
   },
   loginHintLink: {
     fontSize: 11,
@@ -552,13 +585,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: COLORS.textSecondary,
-    marginBottom: 4,
+    marginBottom: 5,
   },
   textInput: {
     backgroundColor: COLORS.surface,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 9,
     color: COLORS.white,
     fontSize: 13,
     borderWidth: 1,
@@ -568,30 +601,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surface,
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 12,
+    padding: 12,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   paymentRowActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: "rgba(212, 175, 55, 0.08)",
+    borderColor: COLORS.cardBorderGold,
+    backgroundColor: "rgba(230, 198, 101, 0.08)",
   },
   radio: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: COLORS.textMuted,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 12,
+  },
+  radioActive: {
+    borderColor: COLORS.primary,
   },
   radioDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: COLORS.primary,
   },
   paymentInfo: {
@@ -609,9 +645,9 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     backgroundColor: COLORS.surfaceLight,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 20,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
@@ -619,16 +655,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 10,
+    marginBottom: 12,
+    letterSpacing: 0.3,
   },
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 8,
   },
   summaryLabel: {
     fontSize: 12,
     color: COLORS.textSecondary,
+    fontWeight: "500",
   },
   summaryVal: {
     fontSize: 12,
@@ -637,11 +675,12 @@ const styles = StyleSheet.create({
   },
   freeText: {
     color: COLORS.accentGreen,
+    fontWeight: "900",
   },
   summaryTotalRow: {
     borderTopWidth: 1,
     borderTopColor: COLORS.divider,
-    paddingTop: 8,
+    paddingTop: 10,
     marginTop: 4,
   },
   totalLabel: {
@@ -650,12 +689,12 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
   totalVal: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "900",
     color: COLORS.primary,
   },
   footer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 14,
     backgroundColor: COLORS.surface,
     borderTopWidth: 1,
@@ -663,8 +702,8 @@ const styles = StyleSheet.create({
   },
   checkoutBtn: {
     backgroundColor: COLORS.primary,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 14,
+    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
   },

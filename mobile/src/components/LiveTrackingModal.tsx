@@ -7,8 +7,10 @@ import {
   TouchableOpacity,
   ScrollView,
   Linking,
+  SafeAreaView,
 } from "react-native"
-import { COLORS } from "../constants/theme"
+import { StatusBar } from "expo-status-bar"
+import { COLORS, SHADOWS } from "../constants/theme"
 
 interface LiveTrackingModalProps {
   visible: boolean
@@ -16,12 +18,19 @@ interface LiveTrackingModalProps {
   order: any
 }
 
-const STAGES = [
+const DELIVERY_STAGES = [
+  { key: "PLACED", title: "Order Confirmed", subtitle: "Tuta Kitchen accepted your order", icon: "✓" },
+  { key: "PREPARING", title: "Cooking Fresh", subtitle: "Chef firing wok, grill & packaging", icon: "🍳" },
+  { key: "RIDER_PICKED", title: "Dispatched", subtitle: "Picked up from Tuta Suites HQ", icon: "📦" },
+  { key: "IN_TRANSIT", title: "Rider En Route", subtitle: "Cruising along Mowe corridor to you", icon: "🏍" },
+  { key: "DELIVERED", title: "Delivered", subtitle: "Handed over warm at your doorstep", icon: "🎉" },
+]
+
+const PICKUP_STAGES = [
   { key: "PLACED", title: "Order Confirmed", subtitle: "Tuta Kitchen received your order", icon: "✓" },
-  { key: "PREPARING", title: "Preparing Your Meal", subtitle: "Chef cooking fresh & packing thermal box", icon: "🍳" },
-  { key: "RIDER_PICKED", title: "Rider Picked Up", subtitle: "Dispatched from Tuta Suites HQ", icon: "📦" },
-  { key: "IN_TRANSIT", title: "Rider on the Way", subtitle: "Heading to your gate on Mowe corridor", icon: "🏍" },
-  { key: "DELIVERED", title: "Delivered", subtitle: "Handed over safely with care", icon: "🎉" },
+  { key: "PREPARING", title: "Chef Preparing Meal", subtitle: "Cooking fresh & sealing in thermal pack", icon: "🍳" },
+  { key: "READY", title: "Ready for Pickup", subtitle: "Waiting at Tuta Express Counter lobby", icon: "🛍️" },
+  { key: "COLLECTED", title: "Collected", subtitle: "Handed to customer • Enjoy your meal!", icon: "🎉" },
 ]
 
 export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
@@ -31,10 +40,12 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
 }) => {
   if (!order) return null
 
-  const [currentStageIdx, setCurrentStageIdx] = useState(2) // Defaults to RIDER_PICKED / IN_TRANSIT
-  const [countdownMinutes, setCountdownMinutes] = useState(order.estimatedMinutes || 24)
+  const isPickup = (order.fulfillmentMode || order.orderType) === "PICKUP" || order.orderType === "TAKEAWAY"
+  const stages = isPickup ? PICKUP_STAGES : DELIVERY_STAGES
 
-  // Countdown timer simulation
+  const [currentStageIdx, setCurrentStageIdx] = useState(isPickup ? 1 : 2)
+  const [countdownMinutes, setCountdownMinutes] = useState(order.estimatedMinutes || (isPickup ? 8 : 22))
+
   useEffect(() => {
     if (!visible) return
     const interval = setInterval(() => {
@@ -43,208 +54,336 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
     return () => clearInterval(interval)
   }, [visible])
 
-  const handleCallRider = () => {
-    Linking.openURL("tel:07075733866")
+  const handleCall = (phone: string = "07075733866") => {
+    Linking.openURL(`tel:${phone}`)
   }
 
   const handleWhatsAppRider = () => {
-    const text = `Hello Babatunde, regarding my Tuta order #${order.trackingId || order.id}...`
+    const text = `Hello Babatunde, regarding my Tuta Grab & Go order #${order.trackingId || order.id}...`
     Linking.openURL(`https://wa.me/2347075733866?text=${encodeURIComponent(text)}`)
   }
 
   const advanceStage = () => {
-    setCurrentStageIdx((prev) => Math.min(STAGES.length - 1, prev + 1))
+    setCurrentStageIdx((prev) => Math.min(stages.length - 1, prev + 1))
   }
 
   const rewindStage = () => {
     setCurrentStageIdx((prev) => Math.max(0, prev - 1))
   }
 
-  const currentStage = STAGES[currentStageIdx]
+  const currentStage = stages[Math.min(currentStageIdx, stages.length - 1)]
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="light" />
+
         {/* Top Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.backBtn}>
-            <Text style={styles.backText}>← Back</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
+            <Text style={styles.closeBtnText}>✕ Close</Text>
           </TouchableOpacity>
+
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Live Order Tracking</Text>
-            <Text style={styles.headerTrackingId}>#{order.trackingId || order.id}</Text>
+            <Text style={styles.headerEyebrow}>
+              {isPickup ? "EXPRESS COUNTER PICKUP" : "EXPRESS DELIVERY"}
+            </Text>
+            <Text style={styles.headerTitle}>Order #{order.trackingId || order.id}</Text>
           </View>
-          <View style={styles.livePill}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>LIVE</Text>
+
+          <View style={styles.liveBadge}>
+            <View style={styles.livePulseDot} />
+            <Text style={styles.liveBadgeText}>LIVE</Text>
           </View>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-          {/* Main ETA Hero Card (Chowdeck Style) */}
-          <View style={styles.etaCard}>
-            <Text style={styles.etaLabel}>ESTIMATED ARRIVAL</Text>
-            <View style={styles.etaRow}>
-              <Text style={styles.etaMinutes}>⚡ {countdownMinutes} mins</Text>
-              <View style={styles.etaStatusPill}>
-                <Text style={styles.etaStatusText}>{currentStage.title}</Text>
+          {/* PICKUP DIGITAL PASS / COUNTER TOKEN */}
+          {isPickup ? (
+            <View style={[styles.pickupPassCard, SHADOWS.card]}>
+              <View style={styles.passHeader}>
+                <View>
+                  <Text style={styles.passLabel}>DIGITAL PICKUP PASS</Text>
+                  <Text style={styles.passSub}>Show this token at the Express Counter</Text>
+                </View>
+                <View style={styles.passCrownBadge}>
+                  <Text style={styles.passCrownText}>👑 TUTA VIP</Text>
+                </View>
+              </View>
+
+              <View style={styles.tokenHighlightBox}>
+                <Text style={styles.tokenLabel}>TOKEN NUMBER</Text>
+                <Text style={styles.tokenNumber}>#{order.trackingId || order.id}</Text>
+                <View style={styles.tokenStatusBadge}>
+                  <Text style={styles.tokenStatusText}>{currentStage.title.toUpperCase()}</Text>
+                </View>
+              </View>
+
+              <View style={styles.pickupEtaRow}>
+                <View>
+                  <Text style={styles.pickupEtaTitle}>Estimated Counter Ready</Text>
+                  <Text style={styles.pickupEtaSub}>Hot from the kitchen</Text>
+                </View>
+                <Text style={styles.pickupEtaValue}>~{countdownMinutes} mins</Text>
+              </View>
+
+              {/* Progress Segments */}
+              <View style={styles.progressBar}>
+                {stages.map((s, idx) => {
+                  const isPassed = idx <= currentStageIdx
+                  const isCurrent = idx === currentStageIdx
+                  return (
+                    <View
+                      key={s.key}
+                      style={[
+                        styles.progressSegment,
+                        isPassed && styles.progressSegmentPassed,
+                        isCurrent && styles.progressSegmentCurrent,
+                      ]}
+                    />
+                  )
+                })}
+              </View>
+
+              {/* Counter Location */}
+              <View style={styles.counterLocationCard}>
+                <View style={styles.counterIconBox}>
+                  <Text style={styles.counterIcon}>🏨</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.counterName}>Tuta Express Kitchen & Counter</Text>
+                  <Text style={styles.counterAddr}>No 3 Assurance CDA, Orimerunmu, Mowe</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => handleCall("07075733866")}
+                style={styles.callCounterBtn}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.callCounterText}>📞 Call Front Desk / Kitchen (07075733866)</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* DELIVERY ETA HERO CARD */
+            <View style={[styles.deliveryHeroCard, SHADOWS.card]}>
+              <View style={styles.etaHeaderRow}>
+                <View>
+                  <Text style={styles.etaMicroLabel}>ESTIMATED DELIVERY</Text>
+                  <Text style={styles.etaLargeValue}>⚡ {countdownMinutes} mins</Text>
+                </View>
+                <View style={styles.statusPill}>
+                  <Text style={styles.statusPillText}>{currentStage.title}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.etaDeliveringTo} numberOfLines={1}>
+                📍 Delivering to: {order.deliveryAddress || "Mowe, Ogun State"}
+              </Text>
+
+              {/* Progress Bar */}
+              <View style={styles.progressBar}>
+                {stages.map((s, idx) => {
+                  const isPassed = idx <= currentStageIdx
+                  const isCurrent = idx === currentStageIdx
+                  return (
+                    <View
+                      key={s.key}
+                      style={[
+                        styles.progressSegment,
+                        isPassed && styles.progressSegmentPassed,
+                        isCurrent && styles.progressSegmentCurrent,
+                      ]}
+                    />
+                  )
+                })}
               </View>
             </View>
-            <Text style={styles.etaAddress} numberOfLines={1}>
-              📍 Delivering to: {order.deliveryAddress || "Mowe, Ogun State"}
-            </Text>
+          )}
 
-            {/* Stage Progress Bar */}
-            <View style={styles.progressBar}>
-              {STAGES.map((s, idx) => {
-                const isPassed = idx <= currentStageIdx
-                const isCurrent = idx === currentStageIdx
-                return (
+          {/* DELIVERY ROUTE CORRIDOR MAP GRAPHIC (If delivery) */}
+          {!isPickup && (
+            <View style={[styles.mapCard, SHADOWS.card]}>
+              <View style={styles.mapHeaderRow}>
+                <Text style={styles.mapTitle}>MOWE HIGHWAY CORRIDOR</Text>
+                <Text style={styles.mapDistance}>4.2 km • Express Transit</Text>
+              </View>
+
+              <View style={styles.routeCanvas}>
+                {/* Kitchen Origin */}
+                <View style={styles.routePoint}>
+                  <View style={styles.routePointIconBox}>
+                    <Text style={styles.routePointEmoji}>🏨</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.routePointTitle}>Tuta Suites Hotel Kitchen</Text>
+                    <Text style={styles.routePointSub}>No 3 Assurance CDA, Orimerunmu</Text>
+                  </View>
+                </View>
+
+                {/* Vertical Corridor Line */}
+                <View style={styles.corridorLineContainer}>
+                  <View style={styles.corridorTrack} />
                   <View
-                    key={s.key}
                     style={[
-                      styles.progressSegment,
-                      isPassed && styles.progressSegmentPassed,
-                      isCurrent && styles.progressSegmentCurrent,
+                      styles.riderPillMarker,
+                      { top: `${Math.min(75, 15 + currentStageIdx * 18)}%` as any },
                     ]}
-                  />
-                )
-              })}
-            </View>
-          </View>
-
-          {/* Interactive Simulated Route Map Graphic */}
-          <View style={styles.mapCard}>
-            <View style={styles.mapHeader}>
-              <Text style={styles.mapTitle}>Route corridor</Text>
-              <Text style={styles.mapDistance}>4.2 km • Mowe Expressway</Text>
-            </View>
-
-            {/* Visual Route Canvas */}
-            <View style={styles.routeCanvas}>
-              {/* Origin: Tuta Suites */}
-              <View style={styles.routeNode}>
-                <View style={styles.nodeIconBg}>
-                  <Text style={styles.nodeIcon}>🏨</Text>
+                  >
+                    <Text style={styles.riderPillEmoji}>🏍</Text>
+                    <View style={styles.riderPillBadge}>
+                      <Text style={styles.riderPillText}>Rider Moving</Text>
+                    </View>
+                  </View>
                 </View>
-                <View>
-                  <Text style={styles.nodeTitle}>Tuta Suites Hotel</Text>
-                  <Text style={styles.nodeSub}>No 3 Assurance CDA, Orimerunmu</Text>
-                </View>
-              </View>
 
-              {/* Highway Corridor Line & Rider Icon */}
-              <View style={styles.routeLineContainer}>
-                <View style={styles.routeDottedLine} />
-                <View style={[styles.riderMarker, { top: `${20 + currentStageIdx * 18}%` as any }]}>
-                  <Text style={styles.riderIcon}>🏍</Text>
-                  <View style={styles.riderTooltip}>
-                    <Text style={styles.riderTooltipText}>Rider en route</Text>
+                {/* Customer Destination */}
+                <View style={styles.routePoint}>
+                  <View style={[styles.routePointIconBox, styles.destIconBox]}>
+                    <Text style={styles.routePointEmoji}>📍</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.routePointTitle}>Your Delivery Address</Text>
+                    <Text style={styles.routePointSub}>{order.deliveryAddress || "Mowe"}</Text>
                   </View>
                 </View>
               </View>
-
-              {/* Destination: Customer Address */}
-              <View style={styles.routeNode}>
-                <View style={[styles.nodeIconBg, styles.destIconBg]}>
-                  <Text style={styles.nodeIcon}>📍</Text>
-                </View>
-                <View>
-                  <Text style={styles.nodeTitle}>Your Delivery Gate</Text>
-                  <Text style={styles.nodeSub}>{order.deliveryAddress || "Mowe"}</Text>
-                </View>
-              </View>
             </View>
-          </View>
+          )}
 
-          {/* Rider Profile Card (Glovo / Chowdeck Signature) */}
-          <View style={styles.riderCard}>
-            <View style={styles.riderTopRow}>
-              <View style={styles.riderAvatar}>
-                <Text style={styles.riderAvatarText}>BK</Text>
-              </View>
-              <View style={styles.riderInfo}>
-                <View style={styles.riderNameRow}>
-                  <Text style={styles.riderName}>Babatunde K.</Text>
-                  <View style={styles.riderRating}>
-                    <Text style={styles.ratingText}>★ 4.9</Text>
+          {/* RIDER PROFILE CARD (If delivery) */}
+          {!isPickup && (
+            <View style={[styles.riderCard, SHADOWS.card]}>
+              <View style={styles.riderHeader}>
+                <View style={styles.riderAvatar}>
+                  <Text style={styles.riderAvatarText}>BK</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.riderNameRow}>
+                    <Text style={styles.riderName}>Babatunde K.</Text>
+                    <View style={styles.riderRatingPill}>
+                      <Text style={styles.riderRatingText}>★ 4.9</Text>
+                    </View>
                   </View>
+                  <Text style={styles.riderVehicle}>Bajaj Boxer 150 • Thermal Hot-Box</Text>
+                  <Text style={styles.riderDeliveries}>184 deliveries completed with care</Text>
                 </View>
-                <Text style={styles.riderVehicle}>Bajaj Boxer 150 • Plate: OGN-842-KT</Text>
-                <Text style={styles.riderCount}>184 deliveries completed with care</Text>
+              </View>
+
+              <View style={styles.riderActions}>
+                <TouchableOpacity
+                  onPress={() => handleCall("07075733866")}
+                  style={styles.riderCallBtn}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.riderCallText}>📞 Call Babatunde</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleWhatsAppRider}
+                  style={styles.riderWaBtn}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.riderWaText}>💬 WhatsApp Rider</Text>
+                </TouchableOpacity>
               </View>
             </View>
+          )}
 
-            {/* Direct Contact Buttons */}
-            <View style={styles.riderActionRow}>
-              <TouchableOpacity activeOpacity={0.8} onPress={handleCallRider} style={styles.riderCallBtn}>
-                <Text style={styles.riderCallText}>📞 Call Rider</Text>
-              </TouchableOpacity>
-              <TouchableOpacity activeOpacity={0.8} onPress={handleWhatsAppRider} style={styles.riderWaBtn}>
-                <Text style={styles.riderWaText}>💬 WhatsApp Rider</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Timeline Milestones */}
-          <View style={styles.timelineCard}>
-            <Text style={styles.timelineTitle}>STATUS TIMELINE</Text>
-            {STAGES.map((s, idx) => {
+          {/* TIMELINE MILESTONES */}
+          <View style={[styles.timelineCard, SHADOWS.card]}>
+            <Text style={styles.timelineHeader}>KITCHEN & DISPATCH PROGRESS</Text>
+            {stages.map((s, idx) => {
               const isPassed = idx <= currentStageIdx
               const isCurrent = idx === currentStageIdx
               return (
-                <View key={s.key} style={styles.timelineRow}>
-                  <View style={[styles.timelineDot, isPassed && styles.timelineDotPassed]}>
-                    <Text style={styles.dotIcon}>{s.icon}</Text>
+                <View key={s.key} style={styles.timelineItem}>
+                  <View
+                    style={[
+                      styles.timelineCircle,
+                      isPassed && styles.timelineCirclePassed,
+                      isCurrent && styles.timelineCircleCurrent,
+                    ]}
+                  >
+                    <Text style={styles.timelineCircleText}>{s.icon}</Text>
                   </View>
-                  <View style={styles.timelineTextWrap}>
-                    <Text style={[styles.timelineStageTitle, isCurrent && styles.timelineStageCurrent]}>
+                  <View style={styles.timelineInfo}>
+                    <Text
+                      style={[
+                        styles.timelineStageTitle,
+                        isCurrent && styles.timelineStageTitleCurrent,
+                      ]}
+                    >
                       {s.title}
                     </Text>
-                    <Text style={styles.timelineStageSub}>{s.subtitle}</Text>
+                    <Text style={styles.timelineStageSubtitle}>{s.subtitle}</Text>
                   </View>
-                  {isPassed && <Text style={styles.passedCheck}>✓</Text>}
+                  {isPassed && <Text style={styles.timelineCheckmark}>✓</Text>}
                 </View>
               )
             })}
           </View>
 
-          {/* Order Summary Dropdown */}
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>ORDER SUMMARY</Text>
+          {/* ORDER ITEMS SUMMARY */}
+          <View style={[styles.summaryCard, SHADOWS.card]}>
+            <View style={styles.summaryTopRow}>
+              <Text style={styles.summaryTitle}>ORDER BREAKDOWN</Text>
+              <Text style={styles.summaryFulfillmentTag}>
+                {isPickup ? "🛍️ Express Pickup" : "🛵 Corridor Delivery"}
+              </Text>
+            </View>
+
             {order.items?.map((item: any, i: number) => (
-              <View key={i} style={styles.summaryItemRow}>
-                <Text style={styles.summaryItemQty}>{item.quantity}x</Text>
-                <Text style={styles.summaryItemName} numberOfLines={1}>{item.name}</Text>
+              <View key={i} style={styles.summaryRow}>
+                <Text style={styles.summaryQty}>{item.quantity}x</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryItemName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  {item.proteins && item.proteins.length > 0 && (
+                    <Text style={styles.summaryAddon}>
+                      + {item.proteins.map((p: any) => p.name).join(", ")}
+                    </Text>
+                  )}
+                  {item.soup && <Text style={styles.summaryAddon}>+ {item.soup}</Text>}
+                </View>
                 <Text style={styles.summaryItemPrice}>₦{item.totalPrice?.toLocaleString()}</Text>
               </View>
             ))}
+
             <View style={styles.summaryTotalRow}>
               <Text style={styles.summaryTotalLabel}>Total Paid</Text>
-              <Text style={styles.summaryTotalVal}>₦{order.totalAmount?.toLocaleString()}</Text>
+              <Text style={styles.summaryTotalValue}>₦{order.totalAmount?.toLocaleString()}</Text>
             </View>
           </View>
 
-          {/* Demo Simulation Controls */}
-          <View style={styles.demoControls}>
-            <Text style={styles.demoTitle}>🎮 Simulation Controls (Test Order Flow):</Text>
-            <View style={styles.demoBtnRow}>
-              <TouchableOpacity onPress={rewindStage} style={styles.demoBtn}>
-                <Text style={styles.demoBtnText}>◀ Previous Stage</Text>
+          {/* SIMULATION TEST CONTROLS (Easily cycle through stages) */}
+          <View style={styles.simCard}>
+            <Text style={styles.simTitle}>⚡ Interactive Stage Preview</Text>
+            <View style={styles.simButtonRow}>
+              <TouchableOpacity
+                onPress={rewindStage}
+                style={styles.simBtn}
+                disabled={currentStageIdx === 0}
+              >
+                <Text style={styles.simBtnText}>◀ Previous Stage</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={advanceStage} style={[styles.demoBtn, styles.demoBtnGold]}>
-                <Text style={[styles.demoBtnText, styles.demoBtnTextGold]}>Next Stage ▶</Text>
+              <TouchableOpacity
+                onPress={advanceStage}
+                style={[styles.simBtn, styles.simBtnGold]}
+                disabled={currentStageIdx === stages.length - 1}
+              >
+                <Text style={[styles.simBtnText, styles.simBtnTextGold]}>Next Stage ▶</Text>
               </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </Modal>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
   },
@@ -253,19 +392,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 48,
-    paddingBottom: 12,
+    paddingTop: 14,
+    paddingBottom: 14,
+    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.cardBorder,
-    backgroundColor: COLORS.surface,
   },
-  backBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  closeBtn: {
     backgroundColor: COLORS.surfaceLight,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
-  backText: {
+  closeBtnText: {
     color: COLORS.white,
     fontSize: 12,
     fontWeight: "700",
@@ -273,104 +414,245 @@ const styles = StyleSheet.create({
   headerCenter: {
     alignItems: "center",
   },
+  headerEyebrow: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: COLORS.primary,
+    letterSpacing: 0.8,
+  },
   headerTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
     color: COLORS.white,
   },
-  headerTrackingId: {
-    fontSize: 11,
-    color: COLORS.primary,
-    fontWeight: "700",
-    fontFamily: "monospace",
-  },
-  livePill: {
+  liveBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    backgroundColor: COLORS.dangerLight,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.3)",
+    borderColor: "rgba(255, 71, 87, 0.4)",
+    gap: 5,
   },
-  liveDot: {
+  livePulseDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: COLORS.danger,
   },
-  liveText: {
+  liveBadgeText: {
+    color: COLORS.danger,
     fontSize: 10,
     fontWeight: "900",
-    color: COLORS.danger,
+    letterSpacing: 0.5,
   },
   scrollBody: {
     padding: 16,
     paddingBottom: 40,
   },
-  etaCard: {
+  pickupPassCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
+    borderRadius: 22,
+    padding: 20,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorderGold,
     marginBottom: 16,
   },
-  etaLabel: {
+  passHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  passLabel: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: COLORS.primary,
+    letterSpacing: 1,
+  },
+  passSub: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  passCrownBadge: {
+    backgroundColor: "rgba(230, 198, 101, 0.12)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGoldSubtle,
+  },
+  passCrownText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: COLORS.primary,
+  },
+  tokenHighlightBox: {
+    backgroundColor: "rgba(230, 198, 101, 0.08)",
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGold,
+    marginBottom: 16,
+  },
+  tokenLabel: {
     fontSize: 10,
     fontWeight: "800",
     color: COLORS.textMuted,
     letterSpacing: 1,
-    marginBottom: 4,
   },
-  etaRow: {
+  tokenNumber: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: COLORS.primary,
+    letterSpacing: 2,
+    marginVertical: 4,
+    fontFamily: "monospace",
+  },
+  tokenStatusBadge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  tokenStatusText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#000",
+    letterSpacing: 0.5,
+  },
+  pickupEtaRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 14,
   },
-  etaMinutes: {
-    fontSize: 26,
+  pickupEtaTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.white,
+  },
+  pickupEtaSub: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  pickupEtaValue: {
+    fontSize: 18,
     fontWeight: "900",
     color: COLORS.accentGreen,
-  },
-  etaStatusPill: {
-    backgroundColor: "rgba(212, 175, 55, 0.15)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  etaStatusText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: COLORS.primary,
-  },
-  etaAddress: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginBottom: 14,
   },
   progressBar: {
     flexDirection: "row",
     height: 6,
     backgroundColor: COLORS.surfaceLight,
     borderRadius: 3,
-    overflow: "hidden",
     gap: 4,
+    marginBottom: 16,
   },
   progressSegment: {
     flex: 1,
     backgroundColor: COLORS.cardBorder,
+    borderRadius: 3,
   },
   progressSegmentPassed: {
     backgroundColor: COLORS.accentGreen,
   },
   progressSegmentCurrent: {
     backgroundColor: COLORS.primary,
+  },
+  counterLocationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surfaceLight,
+    padding: 12,
+    borderRadius: 14,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    marginBottom: 12,
+  },
+  counterIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.surfaceElevated,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  counterIcon: {
+    fontSize: 18,
+  },
+  counterName: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.white,
+  },
+  counterAddr: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  callCounterBtn: {
+    backgroundColor: COLORS.surfaceElevated,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGoldSubtle,
+  },
+  callCounterText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.primary,
+  },
+  deliveryHeroCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorderGold,
+    marginBottom: 16,
+  },
+  etaHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  etaMicroLabel: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: COLORS.textMuted,
+    letterSpacing: 1,
+  },
+  etaLargeValue: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: COLORS.accentGreen,
+    marginTop: 2,
+  },
+  statusPill: {
+    backgroundColor: "rgba(230, 198, 101, 0.14)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGold,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: COLORS.primary,
+  },
+  etaDeliveringTo: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 14,
   },
   mapCard: {
     backgroundColor: COLORS.surface,
@@ -380,37 +662,36 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBorder,
     marginBottom: 16,
   },
-  mapHeader: {
+  mapHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 14,
   },
   mapTitle: {
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 11,
+    fontWeight: "900",
     color: COLORS.white,
-    textTransform: "uppercase",
+    letterSpacing: 0.8,
   },
   mapDistance: {
     fontSize: 11,
-    color: COLORS.accentGreen,
     fontWeight: "700",
+    color: COLORS.accentGreen,
   },
   routeCanvas: {
-    backgroundColor: "#0F1318",
+    backgroundColor: COLORS.backgroundSecondary,
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
-    position: "relative",
   },
-  routeNode: {
+  routePoint: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  nodeIconBg: {
+  routePointIconBox: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -420,50 +701,50 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
-  destIconBg: {
+  destIconBox: {
     borderColor: COLORS.accentGreen,
     backgroundColor: COLORS.accentGreenLight,
   },
-  nodeIcon: {
-    fontSize: 18,
+  routePointEmoji: {
+    fontSize: 17,
   },
-  nodeTitle: {
-    fontSize: 13,
+  routePointTitle: {
+    fontSize: 12,
     fontWeight: "800",
     color: COLORS.white,
   },
-  nodeSub: {
+  routePointSub: {
     fontSize: 11,
     color: COLORS.textMuted,
   },
-  routeLineContainer: {
-    height: 80,
-    marginLeft: 18,
+  corridorLineContainer: {
+    height: 75,
+    marginLeft: 17,
     position: "relative",
   },
-  routeDottedLine: {
+  corridorTrack: {
     width: 2,
     height: "100%",
     backgroundColor: COLORS.primary,
-    opacity: 0.5,
+    opacity: 0.35,
   },
-  riderMarker: {
+  riderPillMarker: {
     position: "absolute",
-    left: -12,
+    left: -14,
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
-  riderIcon: {
-    fontSize: 24,
+  riderPillEmoji: {
+    fontSize: 22,
   },
-  riderTooltip: {
+  riderPillBadge: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
-    marginLeft: 4,
   },
-  riderTooltipText: {
+  riderPillText: {
     fontSize: 9,
     fontWeight: "900",
     color: "#000",
@@ -476,27 +757,24 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBorder,
     marginBottom: 16,
   },
-  riderTopRow: {
+  riderHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 14,
   },
   riderAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   riderAvatarText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "900",
     color: "#000",
-  },
-  riderInfo: {
-    flex: 1,
   },
   riderNameRow: {
     flexDirection: "row",
@@ -504,38 +782,38 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   riderName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
     color: COLORS.white,
   },
-  riderRating: {
-    backgroundColor: "rgba(212, 175, 55, 0.15)",
-    paddingHorizontal: 6,
+  riderRatingPill: {
+    backgroundColor: "rgba(230, 198, 101, 0.15)",
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
   },
-  ratingText: {
+  riderRatingText: {
     fontSize: 11,
     fontWeight: "800",
     color: COLORS.primary,
   },
   riderVehicle: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textSecondary,
     marginTop: 2,
   },
-  riderCount: {
+  riderDeliveries: {
     fontSize: 10,
     color: COLORS.textMuted,
   },
-  riderActionRow: {
+  riderActions: {
     flexDirection: "row",
     gap: 10,
   },
   riderCallBtn: {
     flex: 1,
     backgroundColor: COLORS.surfaceLight,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
@@ -549,7 +827,7 @@ const styles = StyleSheet.create({
   riderWaBtn: {
     flex: 1,
     backgroundColor: COLORS.accentGreen,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 12,
     alignItems: "center",
   },
@@ -566,37 +844,41 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBorder,
     marginBottom: 16,
   },
-  timelineTitle: {
-    fontSize: 11,
-    fontWeight: "800",
+  timelineHeader: {
+    fontSize: 10,
+    fontWeight: "900",
     color: COLORS.textMuted,
     letterSpacing: 1,
-    marginBottom: 12,
+    marginBottom: 14,
   },
-  timelineRow: {
+  timelineItem: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 12,
     gap: 12,
   },
-  timelineDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  timelineCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: COLORS.surfaceLight,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
-  timelineDotPassed: {
+  timelineCirclePassed: {
     backgroundColor: COLORS.accentGreen,
     borderColor: COLORS.accentGreen,
   },
-  dotIcon: {
+  timelineCircleCurrent: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  timelineCircleText: {
     fontSize: 11,
   },
-  timelineTextWrap: {
+  timelineInfo: {
     flex: 1,
   },
   timelineStageTitle: {
@@ -604,17 +886,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.textSecondary,
   },
-  timelineStageCurrent: {
+  timelineStageTitleCurrent: {
     color: COLORS.primary,
     fontWeight: "900",
   },
-  timelineStageSub: {
+  timelineStageSubtitle: {
     fontSize: 11,
     color: COLORS.textMuted,
   },
-  passedCheck: {
+  timelineCheckmark: {
     color: COLORS.accentGreen,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
   },
   summaryCard: {
@@ -625,88 +907,104 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBorder,
     marginBottom: 16,
   },
+  summaryTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   summaryTitle: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 10,
+    fontWeight: "900",
     color: COLORS.textMuted,
     letterSpacing: 1,
-    marginBottom: 10,
   },
-  summaryItemRow: {
+  summaryFulfillmentTag: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: "800",
+  },
+  summaryRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
+    borderBottomColor: COLORS.cardBorderSubtle,
+    gap: 10,
   },
-  summaryItemQty: {
+  summaryQty: {
     fontSize: 12,
     fontWeight: "800",
     color: COLORS.primary,
-    width: 28,
+    width: 24,
   },
   summaryItemName: {
-    flex: 1,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: "700",
     color: COLORS.white,
   },
+  summaryAddon: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+  },
   summaryItemPrice: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "800",
     color: COLORS.white,
   },
   summaryTotalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: 10,
+    paddingTop: 12,
+    marginTop: 4,
   },
   summaryTotalLabel: {
     fontSize: 13,
     fontWeight: "800",
     color: COLORS.white,
   },
-  summaryTotalVal: {
-    fontSize: 15,
+  summaryTotalValue: {
+    fontSize: 16,
     fontWeight: "900",
     color: COLORS.primary,
   },
-  demoControls: {
-    backgroundColor: "rgba(212, 175, 55, 0.08)",
+  simCard: {
+    backgroundColor: "rgba(230, 198, 101, 0.06)",
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(212, 175, 55, 0.25)",
+    borderColor: COLORS.cardBorderGoldSubtle,
   },
-  demoTitle: {
+  simTitle: {
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "800",
     color: COLORS.primary,
     marginBottom: 8,
   },
-  demoBtnRow: {
+  simButtonRow: {
     flexDirection: "row",
     gap: 8,
   },
-  demoBtn: {
+  simBtn: {
     flex: 1,
-    backgroundColor: COLORS.surface,
-    paddingVertical: 8,
+    backgroundColor: COLORS.surfaceLight,
+    paddingVertical: 9,
     borderRadius: 8,
     alignItems: "center",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
-  demoBtnGold: {
+  simBtnGold: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
-  demoBtnText: {
+  simBtnText: {
     fontSize: 11,
     fontWeight: "800",
     color: COLORS.white,
   },
-  demoBtnTextGold: {
+  simBtnTextGold: {
     color: "#000",
   },
 })

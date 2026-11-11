@@ -9,7 +9,7 @@ import {
   ScrollView,
   TextInput,
 } from "react-native"
-import { COLORS } from "../constants/theme"
+import { COLORS, SHADOWS } from "../constants/theme"
 import {
   MenuItem,
   SOUP_OPTIONS,
@@ -76,17 +76,17 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
 
   // Cost calculations
   const proteinCost = selectedProteins.reduce((sum, id) => {
-    const p = PROTEIN_ADDONS.find((item) => item.id === id)
+    const p = PROTEIN_ADDONS.find((addon) => addon.id === id)
     return sum + (p ? p.price : 0)
   }, 0)
 
   const sideCost = selectedSides.reduce((sum, id) => {
-    const s = SIDE_ADDONS.find((item) => item.id === id)
+    const s = SIDE_ADDONS.find((addon) => addon.id === id)
     return sum + (s ? s.price : 0)
   }, 0)
 
   const drinkCost = selectedDrinks.reduce((sum, id) => {
-    const d = DRINK_ADDONS.find((item) => item.id === id)
+    const d = DRINK_ADDONS.find((addon) => addon.id === id)
     return sum + (d ? d.price : 0)
   }, 0)
 
@@ -131,19 +131,27 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          {/* Header image & close button */}
+          {/* iOS Sheet Drag Handle */}
+          <View style={styles.sheetHandleContainer}>
+            <View style={styles.sheetHandle} />
+          </View>
+
+          {/* Hero Media Section */}
           <View style={styles.imageContainer}>
             <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
+            <View style={styles.imageGradientOverlay} />
+
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.8}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
+
             <View style={styles.badgeContainer}>
               <Text style={styles.badgeText}>⚡ Ready in {item.prepTime}</Text>
             </View>
           </View>
 
           <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-            {/* Title & Base Price */}
+            {/* Title & Base Price Card */}
             <View style={styles.titleSection}>
               <View style={styles.titleRow}>
                 <Text style={styles.itemName}>{item.name}</Text>
@@ -152,12 +160,14 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               <Text style={styles.itemDesc}>{item.desc}</Text>
             </View>
 
-            {/* Soup Choice (If Swallow) */}
+            {/* Step 1: Soup Choice (If Swallow) */}
             {isSwallow && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>1. Choose Complimentary Soup</Text>
-                  <Text style={styles.requiredTag}>REQUIRED</Text>
+                  <View style={styles.requiredPill}>
+                    <Text style={styles.requiredTag}>REQUIRED</Text>
+                  </View>
                 </View>
                 {SOUP_OPTIONS.map((soup) => {
                   const isSelected = selectedSoup === soup.id
@@ -181,7 +191,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               </View>
             )}
 
-            {/* Protein Add-ons */}
+            {/* Step 2: Protein Add-ons */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
@@ -210,7 +220,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               })}
             </View>
 
-            {/* Sides */}
+            {/* Step 3: Sides */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Add Sides & Shawarma</Text>
@@ -237,7 +247,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               })}
             </View>
 
-            {/* Drinks */}
+            {/* Step 4: Drinks */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Add Chilled Drink or Zobo</Text>
@@ -264,12 +274,12 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               })}
             </View>
 
-            {/* Takeaway Packaging Option */}
+            {/* Step 5: Takeaway Pack Option */}
             <View style={styles.section}>
               <TouchableOpacity
                 style={[styles.packRow, includeTakeawayPack && styles.packRowSelected]}
                 onPress={() => setIncludeTakeawayPack((prev) => !prev)}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
                 <View style={styles.optionLeft}>
                   <View style={[styles.checkbox, includeTakeawayPack && styles.checkboxActive]}>
@@ -284,12 +294,12 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Special Instructions */}
+            {/* Step 6: Special Kitchen Instructions */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Kitchen Note / Instructions</Text>
+              <Text style={styles.sectionTitle}>Kitchen Note / Special Request</Text>
               <TextInput
                 style={styles.instructionInput}
-                placeholder="e.g. Pack pepper sauce separately, extra hot..."
+                placeholder="e.g. Pack pepper sauce separately, extra peppery..."
                 placeholderTextColor={COLORS.textMuted}
                 value={specialInstructions}
                 onChangeText={setSpecialInstructions}
@@ -298,9 +308,12 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
               />
             </View>
 
-            {/* Quantity Selector */}
+            {/* Step 7: Portion Stepper */}
             <View style={styles.quantitySection}>
-              <Text style={styles.quantityLabel}>Portion Quantity</Text>
+              <View>
+                <Text style={styles.quantityLabel}>Portion Quantity</Text>
+                <Text style={styles.quantitySub}>Number of complete plates</Text>
+              </View>
               <View style={styles.stepperContainer}>
                 <TouchableOpacity
                   style={styles.stepperBtn}
@@ -321,14 +334,18 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
             </View>
           </ScrollView>
 
-          {/* Bottom Action Bar */}
+          {/* Sticky Bottom Action Bar */}
           <View style={styles.footer}>
             <View style={styles.footerPriceCol}>
               <Text style={styles.footerPriceLabel}>TOTAL PRICE</Text>
               <Text style={styles.footerPriceVal}>₦{grandTotal.toLocaleString()}</Text>
             </View>
 
-            <TouchableOpacity style={styles.addTrayBtn} onPress={handleConfirm} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={[styles.addTrayBtn, SHADOWS.card]}
+              onPress={handleConfirm}
+              activeOpacity={0.85}
+            >
               <Text style={styles.addTrayBtnText}>
                 Add to Tray • ₦{grandTotal.toLocaleString()}
               </Text>
@@ -343,17 +360,28 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.75)",
+    backgroundColor: "rgba(0,0,0,0.8)",
     justifyContent: "flex-end",
   },
   modalContent: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     height: "88%",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     overflow: "hidden",
+  },
+  sheetHandleContainer: {
+    alignItems: "center",
+    paddingVertical: 8,
+    backgroundColor: COLORS.surface,
+  },
+  sheetHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "rgba(255,255,255,0.2)",
   },
   imageContainer: {
     width: "100%",
@@ -365,6 +393,14 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  imageGradientOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.2)",
+  },
   closeBtn: {
     position: "absolute",
     top: 14,
@@ -372,23 +408,27 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
     justifyContent: "center",
   },
   closeBtnText: {
     color: COLORS.white,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "bold",
   },
   badgeContainer: {
     position: "absolute",
     bottom: 12,
     left: 14,
-    backgroundColor: "rgba(0,0,0,0.75)",
+    backgroundColor: "rgba(0,0,0,0.8)",
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0, 194, 116, 0.4)",
   },
   badgeText: {
     color: COLORS.accentGreen,
@@ -420,7 +460,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   itemPrice: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: "900",
     color: COLORS.primary,
   },
@@ -436,17 +476,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   sectionTitle: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "900",
     color: COLORS.white,
     letterSpacing: 0.3,
   },
+  requiredPill: {
+    backgroundColor: COLORS.accentOrangeLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
   requiredTag: {
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 9,
+    fontWeight: "900",
     color: COLORS.accentOrange,
   },
   optionalTag: {
@@ -459,26 +505,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     backgroundColor: COLORS.surfaceLight,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   optionRowSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: "rgba(212, 175, 55, 0.08)",
+    borderColor: COLORS.cardBorderGold,
+    backgroundColor: "rgba(230, 198, 101, 0.08)",
   },
   optionLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   radioCircle: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: COLORS.textMuted,
     alignItems: "center",
@@ -488,15 +534,15 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
   },
   radioInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: COLORS.primary,
   },
   checkbox: {
     width: 20,
     height: 20,
-    borderRadius: 5,
+    borderRadius: 6,
     borderWidth: 1.5,
     borderColor: COLORS.textMuted,
     alignItems: "center",
@@ -513,7 +559,7 @@ const styles = StyleSheet.create({
   },
   optionName: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     color: COLORS.white,
   },
   freeTag: {
@@ -523,7 +569,7 @@ const styles = StyleSheet.create({
   },
   addonPrice: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "900",
     color: COLORS.primary,
   },
   packRow: {
@@ -532,13 +578,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.surfaceLight,
     paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   packRowSelected: {
-    borderColor: COLORS.accentGreen,
+    borderColor: "rgba(0, 194, 116, 0.4)",
     backgroundColor: COLORS.accentGreenLight,
   },
   packTitle: {
@@ -553,11 +599,11 @@ const styles = StyleSheet.create({
   },
   instructionInput: {
     backgroundColor: COLORS.surfaceLight,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     color: COLORS.white,
-    fontSize: 12,
+    fontSize: 13,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     marginTop: 6,
@@ -566,27 +612,32 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderTopWidth: 1,
     borderTopColor: COLORS.divider,
-    marginBottom: 20,
+    marginBottom: 24,
   },
   quantityLabel: {
     fontSize: 14,
     fontWeight: "800",
     color: COLORS.white,
   },
+  quantitySub: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
   stepperContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surfaceLight,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   stepperBtn: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -602,14 +653,14 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   footer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: COLORS.divider,
     backgroundColor: COLORS.surface,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 14,
   },
   footerPriceCol: {
     justifyContent: "center",
@@ -618,18 +669,18 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     color: COLORS.textMuted,
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   footerPriceVal: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
     color: COLORS.white,
   },
   addTrayBtn: {
     flex: 1,
     backgroundColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -637,5 +688,6 @@ const styles = StyleSheet.create({
     color: "#000",
     fontSize: 14,
     fontWeight: "900",
+    letterSpacing: 0.3,
   },
 })

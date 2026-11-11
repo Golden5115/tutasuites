@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native"
 import { StatusBar } from "expo-status-bar"
-import { COLORS } from "./src/constants/theme"
+import { COLORS, SHADOWS } from "./src/constants/theme"
 import { MENU_ITEMS, MenuItem } from "./src/constants/menuData"
 import { ENDPOINTS } from "./src/constants/config"
 import { Header } from "./src/components/Header"
@@ -259,39 +259,46 @@ export default function App() {
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-        {/* "Build Your Plate" Hero Banner (Sweetgreen / Chipotle style) */}
+        {/* "Build Your Royal Plate" Hero Banner (Sweetgreen / Fast-Casual luxury) */}
         <TouchableOpacity
-          activeOpacity={0.9}
+          activeOpacity={0.92}
           onPress={handleOpenPlateBuilder}
-          style={styles.comboBanner}
+          style={[styles.comboBanner, SHADOWS.card]}
         >
           <View style={styles.comboBannerContent}>
             <View style={styles.comboTagRow}>
               <View style={styles.comboTag}>
-                <Text style={styles.comboTagText}>⚡ CHEF'S COMBO</Text>
+                <Text style={styles.comboTagText}>👑 CHEF'S SIGNATURE</Text>
               </View>
-              <Text style={styles.comboSpeed}>Ready in 5-10m</Text>
+              <View style={styles.comboSpeedBadge}>
+                <Text style={styles.comboSpeed}>⚡ Ready in 5-10m</Text>
+              </View>
             </View>
 
-            <Text style={styles.comboBannerTitle}>Build Your Custom Plate</Text>
+            <Text style={styles.comboBannerTitle}>Build Your Royal Plate</Text>
             <Text style={styles.comboBannerSub}>
-              Choose Rice (₦500) + Grilled Turkey/Chicken + Dodo + Chilled Zobo in seconds.
+              Custom Jollof or Swallow + Choice of Grilled Turkey, Chicken or Goat Meat + Dodo & Chilled Zobo.
             </Text>
 
             <View style={styles.comboCtaRow}>
               <View style={styles.comboCtaBtn}>
-                <Text style={styles.comboCtaBtnText}>Tap to Build Plate ❯</Text>
+                <Text style={styles.comboCtaBtnText}>Tap to Customize Plate ❯</Text>
               </View>
-              <Text style={styles.comboPricingHint}>From ₦500/portion</Text>
+              <Text style={styles.comboPricingHint}>From ₦500 / portion</Text>
             </View>
           </View>
         </TouchableOpacity>
 
         {/* Section Header */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>
-            {selectedCategory === "All" ? "Official Tuta Grab & Go Menu" : `${selectedCategory}`}
-          </Text>
+          <View style={styles.sectionTitleWrap}>
+            <Text style={styles.sectionTitle}>
+              {selectedCategory === "All" ? "Official Tuta Menu" : `${selectedCategory}`}
+            </Text>
+            <View style={styles.officialBadge}>
+              <Text style={styles.officialBadgeText}>VERIFIED PRICES</Text>
+            </View>
+          </View>
           <Text style={styles.sectionCountBadge}>{filteredItems.length} items</Text>
         </View>
 
@@ -317,7 +324,7 @@ export default function App() {
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => setShowCartModal(true)}
-            style={styles.floatingTrayBar}
+            style={[styles.floatingTrayBar, SHADOWS.floating, SHADOWS.goldGlow]}
           >
             <View style={styles.trayLeft}>
               <View style={styles.trayBadge}>
@@ -326,7 +333,7 @@ export default function App() {
               <View>
                 <Text style={styles.trayTitle}>View Your Tray</Text>
                 <Text style={styles.traySubtitle}>
-                  {fulfillmentMode === "PICKUP" ? "🛍️ Pickup at Counter" : "🛵 Doorstep Delivery"}
+                  {fulfillmentMode === "PICKUP" ? "🛍️ Express Counter Pickup" : "🛵 Fast Doorstep Delivery"}
                 </Text>
               </View>
             </View>
@@ -344,10 +351,12 @@ export default function App() {
         <TouchableOpacity
           activeOpacity={0.9}
           onPress={() => setShowTrackingModal(true)}
-          style={styles.floatingOrderPill}
+          style={[styles.floatingOrderPill, SHADOWS.floating]}
         >
           <View style={styles.floatingLeft}>
-            <View style={styles.orderStatusDot} />
+            <View style={styles.orderStatusPulseContainer}>
+              <View style={styles.orderStatusDot} />
+            </View>
             <View>
               <Text style={styles.floatingTitle}>
                 Order #{activeOrder.trackingId || activeOrder.id}
@@ -416,8 +425,11 @@ export default function App() {
       {/* Address Switcher Modal */}
       <Modal visible={showAddressPicker} transparent animationType="fade">
         <View style={styles.addressModalBackdrop}>
-          <View style={styles.addressModalCard}>
-            <Text style={styles.addressModalTitle}>Select Your Delivery Area</Text>
+          <View style={[styles.addressModalCard, SHADOWS.card]}>
+            <View style={styles.addressModalHeader}>
+              <Text style={styles.addressModalTitle}>Select Delivery Area</Text>
+              <Text style={styles.addressModalSub}>Express dispatch along Mowe corridor</Text>
+            </View>
             {[
               "Mowe, Assurance CDA Estate",
               "Mowe Bus Stop / Expressway",
@@ -425,24 +437,30 @@ export default function App() {
               "Ibafo Police Station / Town",
               "Arepo, Journalists Estate",
               "OPIC Plaza / Berger Border",
-            ].map((addr) => (
-              <TouchableOpacity
-                key={addr}
-                onPress={() => {
-                  setCurrentAddress(addr)
-                  setShowAddressPicker(false)
-                }}
-                style={[styles.addrRow, currentAddress === addr && styles.addrRowActive]}
-              >
-                <Text style={styles.addrPin}>📍</Text>
-                <Text style={[styles.addrText, currentAddress === addr && styles.addrTextActive]}>
-                  {addr}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            ].map((addr) => {
+              const isSelected = currentAddress === addr
+              return (
+                <TouchableOpacity
+                  key={addr}
+                  onPress={() => {
+                    setCurrentAddress(addr)
+                    setShowAddressPicker(false)
+                  }}
+                  style={[styles.addrRow, isSelected && styles.addrRowActive]}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addrPin}>📍</Text>
+                  <Text style={[styles.addrText, isSelected && styles.addrTextActive]}>
+                    {addr}
+                  </Text>
+                  {isSelected && <Text style={styles.addrCheck}>✓</Text>}
+                </TouchableOpacity>
+              )
+            })}
             <TouchableOpacity
               onPress={() => setShowAddressPicker(false)}
               style={styles.closeAddrBtn}
+              activeOpacity={0.8}
             >
               <Text style={styles.closeAddrText}>Cancel</Text>
             </TouchableOpacity>
@@ -465,15 +483,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 16,
-    borderRadius: 18,
+    borderRadius: 22,
     backgroundColor: COLORS.surface,
     borderWidth: 1.5,
-    borderColor: COLORS.primaryDark,
+    borderColor: COLORS.cardBorderGold,
     overflow: "hidden",
   },
   comboBannerContent: {
-    padding: 16,
-    backgroundColor: "rgba(212, 175, 55, 0.05)",
+    padding: 18,
+    backgroundColor: "rgba(230, 198, 101, 0.05)",
   },
   comboTagRow: {
     flexDirection: "row",
@@ -483,9 +501,9 @@ const styles = StyleSheet.create({
   },
   comboTag: {
     backgroundColor: COLORS.accentOrange,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 7,
   },
   comboTagText: {
     color: "#000",
@@ -493,22 +511,31 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.5,
   },
+  comboSpeedBadge: {
+    backgroundColor: COLORS.accentGreenLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(0, 194, 116, 0.3)",
+  },
   comboSpeed: {
     color: COLORS.accentGreen,
     fontSize: 11,
     fontWeight: "800",
   },
   comboBannerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 4,
+    marginBottom: 5,
+    letterSpacing: 0.2,
   },
   comboBannerSub: {
     fontSize: 12,
     color: COLORS.textSecondary,
-    lineHeight: 17,
-    marginBottom: 12,
+    lineHeight: 18,
+    marginBottom: 14,
   },
   comboCtaRow: {
     flexDirection: "row",
@@ -517,9 +544,9 @@ const styles = StyleSheet.create({
   },
   comboCtaBtn: {
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 10,
   },
   comboCtaBtnText: {
     color: "#000",
@@ -538,11 +565,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 12,
   },
+  sectionTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
     color: COLORS.white,
     letterSpacing: 0.3,
+  },
+  officialBadge: {
+    backgroundColor: "rgba(230, 198, 101, 0.12)",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGoldSubtle,
+  },
+  officialBadgeText: {
+    color: COLORS.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
   sectionCountBadge: {
     fontSize: 11,
@@ -560,17 +606,12 @@ const styles = StyleSheet.create({
   },
   floatingTrayBar: {
     backgroundColor: COLORS.primary,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
   },
   trayLeft: {
     flexDirection: "row",
@@ -579,15 +620,15 @@ const styles = StyleSheet.create({
   },
   trayBadge: {
     backgroundColor: "#000",
-    borderRadius: 14,
-    width: 28,
-    height: 28,
+    borderRadius: 13,
+    width: 26,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
   },
   trayBadgeText: {
     color: COLORS.primary,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900",
   },
   trayTitle: {
@@ -596,7 +637,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   traySubtitle: {
-    color: "rgba(0,0,0,0.7)",
+    color: "rgba(0,0,0,0.65)",
     fontSize: 11,
     fontWeight: "700",
   },
@@ -605,13 +646,13 @@ const styles = StyleSheet.create({
   },
   trayTotal: {
     color: "#000",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
   },
   trayCheckoutArrow: {
     color: "#000",
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "900",
   },
   floatingOrderPill: {
     position: "absolute",
@@ -619,9 +660,9 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     backgroundColor: COLORS.surface,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -631,75 +672,96 @@ const styles = StyleSheet.create({
   floatingLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
+  },
+  orderStatusPulseContainer: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "rgba(0, 194, 116, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   orderStatusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: COLORS.accentGreen,
   },
   floatingTitle: {
     color: COLORS.white,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
   },
   floatingEta: {
     color: COLORS.primary,
     fontSize: 11,
     fontWeight: "700",
+    marginTop: 1,
   },
   trackCtaPill: {
     backgroundColor: COLORS.surfaceLight,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
     borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    borderColor: COLORS.cardBorderGoldSubtle,
   },
   trackCtaText: {
-    color: COLORS.white,
+    color: COLORS.primary,
     fontSize: 10,
     fontWeight: "900",
+    letterSpacing: 0.5,
   },
   addressModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: "rgba(0,0,0,0.75)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   addressModalCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 20,
+    padding: 20,
     width: "100%",
-    maxWidth: 360,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    maxWidth: 380,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorderGold,
+  },
+  addressModalHeader: {
+    marginBottom: 16,
   },
   addressModalTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 14,
+  },
+  addressModalSub: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 2,
   },
   addrRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
   addrRowActive: {
     backgroundColor: COLORS.surfaceLight,
+    borderColor: COLORS.cardBorderGoldSubtle,
   },
   addrPin: {
     fontSize: 14,
     marginRight: 10,
   },
   addrText: {
+    flex: 1,
     fontSize: 13,
     color: COLORS.textSecondary,
     fontWeight: "600",
@@ -708,8 +770,13 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: "800",
   },
+  addrCheck: {
+    color: COLORS.accentGreen,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   closeAddrBtn: {
-    marginTop: 10,
+    marginTop: 12,
     paddingVertical: 10,
     alignItems: "center",
   },
