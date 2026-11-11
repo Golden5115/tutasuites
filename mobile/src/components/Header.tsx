@@ -1,6 +1,7 @@
 import React from "react"
 import { View, Text, StyleSheet, TextInput, TouchableOpacity } from "react-native"
 import { COLORS } from "../constants/theme"
+import { UserProfile } from "./AuthModal"
 
 interface HeaderProps {
   fulfillmentMode: "DELIVERY" | "PICKUP"
@@ -11,6 +12,8 @@ interface HeaderProps {
   onSearchChange: (text: string) => void
   cartCount: number
   onCartPress: () => void
+  currentUser: UserProfile | null
+  onAccountPress: () => void
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,10 +25,12 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchChange,
   cartCount,
   onCartPress,
+  currentUser,
+  onAccountPress,
 }) => {
   return (
     <View style={styles.container}>
-      {/* Brand & Cart Row */}
+      {/* Brand & Right Actions Row */}
       <View style={styles.topRow}>
         <View style={styles.brandContainer}>
           <View style={styles.brandTitleRow}>
@@ -38,18 +43,32 @@ export const Header: React.FC<HeaderProps> = ({
           <Text style={styles.brandSubtitle}>Hot fresh meals ready in 5–15 mins</Text>
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={onCartPress}
-          style={styles.cartButton}
-        >
-          <Text style={styles.cartIcon}>🛍️</Text>
-          {cartCount > 0 && (
-            <View style={styles.cartBadge}>
-              <Text style={styles.cartBadgeText}>{cartCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.topRightActions}>
+          {/* User Sign In / Profile Pill */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={onAccountPress}
+            style={[styles.accountBtn, currentUser && styles.accountBtnLoggedIn]}
+          >
+            <Text style={[styles.accountBtnText, currentUser && styles.accountBtnTextLoggedIn]}>
+              {currentUser ? `👤 ${currentUser.name.split(" ")[0]}` : "👤 Sign In"}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Cart Tray Button */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={onCartPress}
+            style={styles.cartButton}
+          >
+            <Text style={styles.cartIcon}>🛍️</Text>
+            {cartCount > 0 && (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{cartCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Fulfillment Switch: Delivery vs Pickup */}
@@ -157,6 +176,7 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     flex: 1,
+    marginRight: 8,
   },
   brandTitleRow: {
     flexDirection: "row",
@@ -170,7 +190,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   brandTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "900",
     color: COLORS.white,
     letterSpacing: 0.5,
@@ -180,7 +200,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    marginLeft: 8,
+    marginLeft: 6,
     borderWidth: 1,
     borderColor: COLORS.accentOrange,
   },
@@ -191,14 +211,39 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   brandSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textSecondary,
     marginTop: 2,
   },
+  topRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  accountBtn: {
+    backgroundColor: COLORS.surfaceLight,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  accountBtnLoggedIn: {
+    borderColor: COLORS.cardBorderGold,
+    backgroundColor: "rgba(212, 175, 55, 0.12)",
+  },
+  accountBtnText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  accountBtnTextLoggedIn: {
+    color: COLORS.primary,
+  },
   cartButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: COLORS.surfaceLight,
     alignItems: "center",
     justifyContent: "center",
@@ -207,7 +252,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   cartIcon: {
-    fontSize: 18,
+    fontSize: 16,
   },
   cartBadge: {
     position: "absolute",
@@ -215,15 +260,15 @@ const styles = StyleSheet.create({
     right: -4,
     backgroundColor: COLORS.primary,
     borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 3,
     alignItems: "center",
     justifyContent: "center",
   },
   cartBadgeText: {
     color: "#000",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
   },
   switchContainer: {

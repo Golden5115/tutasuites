@@ -20,6 +20,8 @@ interface CartModalProps {
   currentAddress: string
   fulfillmentMode: "DELIVERY" | "PICKUP"
   onFulfillmentChange: (mode: "DELIVERY" | "PICKUP") => void
+  currentUser?: any | null
+  onOpenAuth?: () => void
 }
 
 export const CartModal: React.FC<CartModalProps> = ({
@@ -31,13 +33,23 @@ export const CartModal: React.FC<CartModalProps> = ({
   currentAddress,
   fulfillmentMode,
   onFulfillmentChange,
+  currentUser,
+  onOpenAuth,
 }) => {
-  const [customerName, setCustomerName] = useState("Guest Customer")
-  const [customerPhone, setCustomerPhone] = useState("08012345678")
-  const [deliveryAddress, setDeliveryAddress] = useState(currentAddress)
+  const [customerName, setCustomerName] = useState(currentUser?.name || "Guest Customer")
+  const [customerPhone, setCustomerPhone] = useState(currentUser?.phone || "08012345678")
+  const [deliveryAddress, setDeliveryAddress] = useState(currentUser?.address || currentAddress)
   const [notes, setNotes] = useState("")
   const [paymentMethod, setPaymentMethod] = useState<"TRANSFER" | "POS_COUNTER">("TRANSFER")
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  React.useEffect(() => {
+    if (currentUser) {
+      if (currentUser.name) setCustomerName(currentUser.name)
+      if (currentUser.phone) setCustomerPhone(currentUser.phone)
+      if (currentUser.address) setDeliveryAddress(currentUser.address)
+    }
+  }, [currentUser])
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
   const deliveryFee = fulfillmentMode === "DELIVERY" ? 1200 : 0
@@ -188,7 +200,16 @@ export const CartModal: React.FC<CartModalProps> = ({
             {/* Customer Details Section */}
             {cartItems.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionHeader}>Customer & Contact</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionHeader}>Customer & Contact</Text>
+                  {currentUser ? (
+                    <Text style={styles.userBadgeText}>✓ Logged in</Text>
+                  ) : onOpenAuth ? (
+                    <TouchableOpacity onPress={onOpenAuth} activeOpacity={0.8}>
+                      <Text style={styles.loginHintLink}>Have account? Sign In ❯</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Your Name</Text>
                   <TextInput
@@ -506,8 +527,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900",
     color: COLORS.white,
-    marginBottom: 10,
     letterSpacing: 0.3,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  userBadgeText: {
+    fontSize: 11,
+    color: COLORS.accentGreen,
+    fontWeight: "800",
+  },
+  loginHintLink: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: "800",
   },
   inputGroup: {
     marginBottom: 10,

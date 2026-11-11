@@ -19,6 +19,8 @@ import { MealCard } from "./src/components/MealCard"
 import { MealDetailModal } from "./src/components/MealDetailModal"
 import { CartModal } from "./src/components/CartModal"
 import { LiveTrackingModal } from "./src/components/LiveTrackingModal"
+import { AuthModal, UserProfile } from "./src/components/AuthModal"
+import { ProfileModal } from "./src/components/ProfileModal"
 
 export default function App() {
   const [fulfillmentMode, setFulfillmentMode] = useState<"DELIVERY" | "PICKUP">("PICKUP")
@@ -26,6 +28,30 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("")
   const [currentAddress, setCurrentAddress] = useState("Mowe, Assurance CDA Estate")
   const [showAddressPicker, setShowAddressPicker] = useState(false)
+
+  // User Authentication & Profile State
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [showProfileModal, setShowProfileModal] = useState(false)
+  const [pastOrders, setPastOrders] = useState<any[]>([])
+
+  const handleAuthSuccess = (user: UserProfile) => {
+    setCurrentUser(user)
+    if (user.address) {
+      setCurrentAddress(user.address)
+    }
+  }
+
+  const handleLogout = () => {
+    setCurrentUser(null)
+  }
+
+  const handleReorder = (pastOrder: any) => {
+    if (pastOrder.items && Array.isArray(pastOrder.items)) {
+      setCartItems(pastOrder.items)
+      setShowCartModal(true)
+    }
+  }
 
   // Cart & Customizer State
   const [cartItems, setCartItems] = useState<any[]>([])
@@ -186,6 +212,7 @@ export default function App() {
     }
 
     setActiveOrder(newOrder)
+    setPastOrders((prev) => [newOrder, ...prev])
     setCartItems([])
     setShowTrackingModal(true)
   }
@@ -214,6 +241,14 @@ export default function App() {
         onSearchChange={setSearchQuery}
         cartCount={totalCartCount}
         onCartPress={() => setShowCartModal(true)}
+        currentUser={currentUser}
+        onAccountPress={() => {
+          if (currentUser) {
+            setShowProfileModal(true)
+          } else {
+            setShowAuthModal(true)
+          }
+        }}
       />
 
       {/* Horizontal Category Bar */}
@@ -347,6 +382,11 @@ export default function App() {
         currentAddress={currentAddress}
         fulfillmentMode={fulfillmentMode}
         onFulfillmentChange={setFulfillmentMode}
+        currentUser={currentUser}
+        onOpenAuth={() => {
+          setShowCartModal(false)
+          setShowAuthModal(true)
+        }}
       />
 
       {/* Live Order Tracking Modal */}
@@ -354,6 +394,23 @@ export default function App() {
         visible={showTrackingModal}
         onClose={() => setShowTrackingModal(false)}
         order={activeOrder}
+      />
+
+      {/* User Login & Registration Modal */}
+      <AuthModal
+        visible={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
+
+      {/* Customer Account & Order History Modal */}
+      <ProfileModal
+        visible={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        user={currentUser}
+        onLogout={handleLogout}
+        onReorder={handleReorder}
+        pastOrders={pastOrders}
       />
 
       {/* Address Switcher Modal */}
