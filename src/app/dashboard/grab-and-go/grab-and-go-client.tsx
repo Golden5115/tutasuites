@@ -164,6 +164,26 @@ function getCategoryIcon(category: string) {
   }
 }
 
+function playKitchenChime() {
+  if (typeof window === "undefined") return
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = "sine"
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime) // D5
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15) // A5
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.8)
+  } catch {}
+}
+
 export function GrabAndGoClient({
   initialCatalog,
   initialOrders,
@@ -206,6 +226,31 @@ export function GrabAndGoClient({
   const [dateFilter, setDateFilter] = useState<string>("today")
   const [historySearch, setHistorySearch] = useState<string>("")
   const [paymentFilter, setPaymentFilter] = useState<"ALL" | "CASH" | "POS" | "TRANSFER">("ALL")
+  const [lastKnownOrderCount, setLastKnownOrderCount] = useState<number>(initialOrders.length)
+  const [newOrderAlert, setNewOrderAlert] = useState<{ id: string; customerName: string } | null>(null)
+
+  // Live order listener & kitchen bell chime for mobile orders
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const freshOrders = await getGrabAndGoOrders({ dateFilter })
+        if (freshOrders && freshOrders.length > lastKnownOrderCount) {
+          const newest = freshOrders[0]
+          setNewOrderAlert({ id: newest.orderNumber, customerName: newest.customerName })
+          playKitchenChime()
+          setOrders(freshOrders)
+          setLastKnownOrderCount(freshOrders.length)
+          const freshAnalytics = await getGrabAndGoAnalytics(dateFilter)
+          setAnalytics(freshAnalytics)
+        } else if (freshOrders && freshOrders.length !== orders.length) {
+          setOrders(freshOrders)
+          setLastKnownOrderCount(freshOrders.length)
+        }
+      } catch {}
+    }, 15000)
+
+    return () => clearInterval(pollInterval)
+  }, [dateFilter, lastKnownOrderCount, orders.length])
 
   // Catalog Manager state
   const [editingItem, setEditingItem] = useState<GrabAndGoMenuItem | null>(null)
@@ -580,6 +625,42 @@ export function GrabAndGoClient({
           </div>
         </div>
       </div>
+
+      {/* Real-time Mobile Order Incoming Alert Banner */}
+      {newOrderAlert && (
+        <div className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-emerald-500/20 to-amber-500/20 border-2 border-amber-400/60 shadow-lg shadow-amber-500/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-400 text-black flex items-center justify-center font-black text-lg">
+              🔔
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider font-extrabold text-amber-300">
+                New Online Mobile Order Received!
+              </p>
+              <p className="text-sm font-bold text-white">
+                Ticket <span className="text-emerald-400 font-mono">#{newOrderAlert.id}</span> placed by {newOrderAlert.customerName || "Customer"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setActiveView("history")
+                setNewOrderAlert(null)
+              }}
+              className="px-4 py-2 rounded-xl bg-emerald-500 text-black font-extrabold text-xs uppercase tracking-wider hover:bg-emerald-400 transition-colors shadow-md"
+            >
+              View Ticket ❯
+            </button>
+            <button
+              onClick={() => setNewOrderAlert(null)}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-zinc-300 transition-colors text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* =====================================================================
           VIEW 1: EXPRESS COUNTER (BUILD-A-PACK TERMINAL)
