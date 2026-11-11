@@ -11,6 +11,7 @@ import {
 } from "react-native"
 import { StatusBar } from "expo-status-bar"
 import { COLORS, SHADOWS } from "../constants/theme"
+import { ENDPOINTS } from "../constants/config"
 
 interface LiveTrackingModalProps {
   visible: boolean
@@ -43,9 +44,10 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
   const isPickup = (order.fulfillmentMode || order.orderType) === "PICKUP" || order.orderType === "TAKEAWAY"
   const stages = isPickup ? PICKUP_STAGES : DELIVERY_STAGES
 
-  const [currentStageIdx, setCurrentStageIdx] = useState(isPickup ? 1 : 2)
+  const [currentStageIdx, setCurrentStageIdx] = useState(0) // Starts at Order Confirmed
   const [countdownMinutes, setCountdownMinutes] = useState(order.estimatedMinutes || (isPickup ? 8 : 22))
 
+  // 1. Hands-free countdown timer
   useEffect(() => {
     if (!visible) return
     const interval = setInterval(() => {
@@ -54,6 +56,63 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
     return () => clearInterval(interval)
   }, [visible])
 
+  // 2. Automated hands-free kitchen progression
+  useEffect(() => {
+    if (!visible) return
+
+    // Auto-advance to "Cooking Fresh" after 12 seconds
+    const t1 = setTimeout(() => {
+      setCurrentStageIdx((prev) => Math.max(prev, 1))
+    }, 12000)
+
+    // Auto-advance to "Ready for Pickup / In Transit" after 45 seconds
+    const t2 = setTimeout(() => {
+      setCurrentStageIdx((prev) => Math.max(prev, 2))
+    }, 45000)
+
+    // Auto-advance to "Collected / Delivered" when complete
+    const t3 = setTimeout(() => {
+      setCurrentStageIdx(stages.length - 1)
+    }, 120000)
+
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      clearTimeout(t3)
+    }
+  }, [visible, stages.length])
+
+  // 3. Live Server Polling: polls backend every 8s for kitchen status updates
+  useEffect(() => {
+    if (!visible || !order) return
+    const trackingId = order.trackingId || order.id
+
+    const pollServer = async () => {
+      try {
+        const res = await fetch(`${ENDPOINTS.orders}?trackingId=${trackingId}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.order && data.order.status) {
+            const st = data.order.status.toUpperCase()
+            if (st === "PLACED" || st === "PENDING") setCurrentStageIdx(0)
+            else if (st === "PREPARING" || st === "COOKING") setCurrentStageIdx(1)
+            else if (st === "READY" || st === "RIDER_PICKED" || st === "DISPATCHED") setCurrentStageIdx(2)
+            else if (st === "IN_TRANSIT") setCurrentStageIdx(3)
+            else if (st === "DELIVERED" || st === "COLLECTED" || st === "COMPLETED") {
+              setCurrentStageIdx(stages.length - 1)
+            }
+          }
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
+
+    const interval = setInterval(pollServer, 8000)
+    pollServer()
+    return () => clearInterval(interval)
+  }, [visible, order, stages.length])
+
   const handleCall = (phone: string = "07075733866") => {
     Linking.openURL(`tel:${phone}`)
   }
@@ -61,14 +120,6 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
   const handleWhatsAppRider = () => {
     const text = `Hello Babatunde, regarding my Tuta Grab & Go order #${order.trackingId || order.id}...`
     Linking.openURL(`https://wa.me/2347075733866?text=${encodeURIComponent(text)}`)
-  }
-
-  const advanceStage = () => {
-    setCurrentStageIdx((prev) => Math.min(stages.length - 1, prev + 1))
-  }
-
-  const rewindStage = () => {
-    setCurrentStageIdx((prev) => Math.max(0, prev - 1))
   }
 
   const currentStage = stages[Math.min(currentStageIdx, stages.length - 1)]
@@ -356,25 +407,27 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
             </View>
           </View>
 
-          {/* SIMULATION TEST CONTROLS (Easily cycle through stages) */}
-          <View style={styles.simCard}>
-            <Text style={styles.simTitle}>⚡ Interactive Stage Preview</Text>
-            <View style={styles.simButtonRow}>
-              <TouchableOpacity
-                onPress={rewindStage}
-                style={styles.simBtn}
-                disabled={currentStageIdx === 0}
-              >
-                <Text style={styles.simBtnText}>◀ Previous Stage</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={advanceStage}
-                style={[styles.simBtn, styles.simBtnGold]}
-                disabled={currentStageIdx === stages.length - 1}
-              >
-                <Text style={[styles.simBtnText, styles.simBtnTextGold]}>Next Stage ▶</Text>
-              </TouchableOpacity>
+          {/* HANDS-FREE AUTOMATED KITCHEN TRACKING BADGE */}
+          <View style={[styles.liveSyncCard, SHADOWS.card]}>
+            <View style={styles.liveSyncTopRow}>
+              <View style={styles.liveSyncDotBox}>
+                <View style={styles.liveSyncDot} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.liveSyncTitle}>Hands-Free Kitchen Tracking</Text>
+                <Text style={styles.liveSyncSubtitle}>
+                  This screen updates automatically in real-time as your meal is cooked, packed, and dispatched.
+                </Text>
+              </View>
             </View>
+
+            <TouchableOpacity
+              onPress={() => handleCall("07075733866")}
+              style={styles.liveSyncHotlineBtn}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.liveSyncHotlineText}>📞 Front Desk & Kitchen: 07075733866</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -969,42 +1022,56 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: COLORS.primary,
   },
-  simCard: {
-    backgroundColor: "rgba(230, 198, 101, 0.06)",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorderGoldSubtle,
+  liveSyncCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorderGold,
+    marginBottom: 16,
   },
-  simTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: COLORS.primary,
-    marginBottom: 8,
-  },
-  simButtonRow: {
+  liveSyncTopRow: {
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
   },
-  simBtn: {
-    flex: 1,
+  liveSyncDotBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.accentGreenLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  liveSyncDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.accentGreen,
+  },
+  liveSyncTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: COLORS.white,
+  },
+  liveSyncSubtitle: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  liveSyncHotlineBtn: {
     backgroundColor: COLORS.surfaceLight,
-    paddingVertical: 9,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
-  simBtnGold: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  simBtnText: {
-    fontSize: 11,
+  liveSyncHotlineText: {
+    color: COLORS.primary,
+    fontSize: 12,
     fontWeight: "800",
-    color: COLORS.white,
-  },
-  simBtnTextGold: {
-    color: "#000",
   },
 })

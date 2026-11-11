@@ -41,8 +41,27 @@ export async function OPTIONS() {
   })
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const trackingId = searchParams.get("trackingId") || searchParams.get("id")
   const orders = getOrders()
+
+  if (trackingId) {
+    const single = orders.find(
+      (o: any) => o.trackingId === trackingId || o.id === trackingId
+    )
+    if (single) {
+      return NextResponse.json(
+        { success: true, order: single },
+        { headers: CORS_HEADERS }
+      )
+    }
+    return NextResponse.json(
+      { success: false, error: "Order not found" },
+      { status: 404, headers: CORS_HEADERS }
+    )
+  }
+
   return NextResponse.json(
     {
       success: true,
