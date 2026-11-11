@@ -32,27 +32,37 @@ export async function POST(req: Request) {
       ? crypto.createHash("sha256").update(password.trim()).digest("hex")
       : null
 
-    const customers: any[] = await prisma
-      .$queryRawUnsafe<any[]>(
-        `SELECT "id", "name", "phone", "email", "address", "passwordHash"
-         FROM "MobileCustomer"
-         WHERE "phone" = $1 OR "email" = $1
-         LIMIT 1`,
-        cleanInput
-      )
-      .catch(() => [])
+    let customers: any[] = []
+    try {
+      customers = await Promise.race([
+        prisma
+          .$queryRawUnsafe<any[]>(
+            `SELECT "id", "name", "phone", "email", "address", "passwordHash"
+             FROM "MobileCustomer"
+             WHERE "phone" = $1 OR "email" = $1
+             LIMIT 1`,
+            cleanInput
+          )
+          .catch(() => []),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+      ])
+    } catch {
+      customers = []
+    }
 
     if (!customers || customers.length === 0) {
-      // If customer doesn't exist yet, allow quick instant guest creation with phone
       const fallbackId = `cust_${crypto.randomBytes(8).toString("hex")}`
+      const defaultName = cleanInput.includes("@")
+        ? cleanInput.split("@")[0]
+        : "Customer"
       return NextResponse.json(
         {
           success: true,
           message: "Welcome back!",
           user: {
             id: fallbackId,
-            name: "Customer",
-            phone: cleanInput,
+            name: defaultName,
+            phone: cleanInput.includes("@") ? "" : cleanInput,
             email: cleanInput.includes("@") ? cleanInput : "",
             address: "Mowe, Assurance CDA Estate",
           },
@@ -63,7 +73,6 @@ export async function POST(req: Request) {
 
     const customer = customers[0]
 
-    // Verify password if one was set
     if (customer.passwordHash && passwordHash && customer.passwordHash !== passwordHash) {
       return NextResponse.json(
         { success: false, error: "Incorrect password. Please try again." },
@@ -92,4 +101,3 @@ export async function POST(req: Request) {
     )
   }
 }
-

@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server"
-import fs from "fs"
-import path from "path"
 import crypto from "crypto"
 import { prisma } from "@/lib/prisma"
 
@@ -8,25 +6,6 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-}
-
-const USERS_FILE = path.join(process.cwd(), ".delivery-orders", "mobile-users.json")
-
-function getUsers(): any[] {
-  try {
-    if (!fs.existsSync(USERS_FILE)) return []
-    return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"))
-  } catch {
-    return []
-  }
-}
-
-function saveUsers(users: any[]) {
-  try {
-    const dir = path.dirname(USERS_FILE)
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8")
-  } catch {}
 }
 
 export async function OPTIONS() {
@@ -52,48 +31,40 @@ export async function POST(req: Request) {
       )
     }
 
-    const existingUsers = getUsers()
-    let user = existingUsers.find(
-      (u) => u.email?.toLowerCase() === email.toLowerCase() || (googleId && u.googleId === googleId)
-    )
+    const cleanEmail = email.trim().toLowerCase()
+    const cleanName = (name || cleanEmail.split("@")[0]).trim()
+    const userId = `google_${googleId || crypto.randomBytes(6).toString("hex")}`
 
-    if (!user) {
-      user = {
-        id: `google_${googleId || Date.now()}`,
-        googleId: googleId || `gid_${Date.now()}`,
-        name: name || email.split("@")[0],
-        email: email.toLowerCase(),
-        phone: phone || "",
-        address: address || "Mowe, Assurance CDA Estate",
-        photoUrl,
-        isVerified: true,
-        createdAt: new Date().toISOString(),
-      }
-      saveUsers([user, ...existingUsers])
-    } else {
-      user.name = name || user.name
-      user.photoUrl = photoUrl || user.photoUrl
-    }
-
-    // Save/update in PostgreSQL Guest table
+    // Save/update in PostgreSQL MobileCustomer table with 2.5s timeout
     try {
-      const nameParts = (user.name || "Google User").trim().split(" ")
-      const firstName = nameParts[0] || "Google"
-      const lastName = nameParts.slice(1).join(" ") || "User"
-      const guestId = `gst_${crypto.randomBytes(8).toString("hex")}`
-
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO "Guest" ("id", "firstName", "lastName", "email", "phone", "address", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-         ON CONFLICT ("email") DO UPDATE SET "firstName" = EXCLUDED."firstName", "lastName" = EXCLUDED."lastName"`,
-        guestId,
-        firstName,
-        lastName,
-        user.email,
-        user.phone || null,
-        user.address || null
-      )
-    } catch (e) {
+      await Promise.race([
+        (async () => {
+          await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "MobileCustomer" (
+              "id" TEXT NOT NULL,
+              "name" TEXT NOT NULL,
+              "phone" TEXT NOT NULL,
+              "email" TEXT,
+              "address" TEXT,
+              "passwordHash" TEXT,
+              "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              CONSTRAINT "MobileCustomer_pkey" PRIMARY KEY ("id")
+            );
+          `)
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO "MobileCustomer" ("id", "name", "phone", "email", "address", "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            userId,
+            cleanName,
+            phone,
+            cleanEmail,
+            address
+          )
+        })(),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ])
+    } catch {
       // Graceful fallback
     }
 
@@ -102,12 +73,12 @@ export async function POST(req: Request) {
         success: true,
         message: "Successfully signed in with Google!",
         user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          address: user.address,
-          photoUrl: user.photoUrl,
+          id: userId,
+          name: cleanName,
+          email: cleanEmail,
+          phone,
+          address,
+          photoUrl,
         },
       },
       { headers: CORS_HEADERS }

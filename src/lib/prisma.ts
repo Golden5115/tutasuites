@@ -9,6 +9,7 @@ const globalForPrisma = globalThis as unknown as {
 const connectionString = (process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PRISMA_DATABASE_URL) as string
 const pool = new Pool({ 
   connectionString,
+  connectionTimeoutMillis: 5000,
   ssl: connectionString?.includes("sslmode=") || process.env.NODE_ENV === "production"
     ? { rejectUnauthorized: false }
     : undefined
