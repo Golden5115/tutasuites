@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  })
+}
+
 // Official Tuta Grab & Go fallback catalog
 const FALLBACK_GRAB_AND_GO_MENU = [
   // Rice
@@ -71,12 +84,15 @@ export async function GET() {
 
       const categories = Array.from(new Set(items.map((i) => i.category)))
 
-      return NextResponse.json({
-        success: true,
-        source: "database",
-        categories: ["All", ...categories],
-        items,
-      })
+      return NextResponse.json(
+        {
+          success: true,
+          source: "database",
+          categories: ["All", ...categories],
+          items,
+        },
+        { headers: CORS_HEADERS }
+      )
     }
   } catch (e) {
     console.warn("Using fallback Grab & Go menu data:", e)
@@ -84,10 +100,13 @@ export async function GET() {
 
   // Fallback
   const categories = Array.from(new Set(FALLBACK_GRAB_AND_GO_MENU.map((i) => i.category)))
-  return NextResponse.json({
-    success: true,
-    source: "fallback",
-    categories: ["All", ...categories],
-    items: FALLBACK_GRAB_AND_GO_MENU,
-  })
+  return NextResponse.json(
+    {
+      success: true,
+      source: "fallback",
+      categories: ["All", ...categories],
+      items: FALLBACK_GRAB_AND_GO_MENU,
+    },
+    { headers: CORS_HEADERS }
+  )
 }

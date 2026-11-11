@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import {
   SafeAreaView,
   View,
@@ -7,10 +7,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
+  ActivityIndicator,
 } from "react-native"
 import { StatusBar } from "expo-status-bar"
 import { COLORS } from "./src/constants/theme"
 import { MENU_ITEMS, MenuItem } from "./src/constants/menuData"
+import { ENDPOINTS } from "./src/constants/config"
 import { Header } from "./src/components/Header"
 import { CategoryBar } from "./src/components/CategoryBar"
 import { MealCard } from "./src/components/MealCard"
@@ -32,6 +34,34 @@ export default function App() {
   const [showCartModal, setShowCartModal] = useState(false)
 
   // Active Order Tracking State
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(MENU_ITEMS)
+  const [isLoadingMenu, setIsLoadingMenu] = useState(false)
+
+  // Fetch live menu from tutasuites.com
+  useEffect(() => {
+    let isMounted = true
+    const loadLiveMenu = async () => {
+      try {
+        setIsLoadingMenu(true)
+        const res = await fetch(ENDPOINTS.menu)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.items && Array.isArray(data.items) && data.items.length > 0 && isMounted) {
+            setMenuItems(data.items)
+          }
+        }
+      } catch (e) {
+        // Keeps local fallback menu smoothly if network unavailable
+      } finally {
+        if (isMounted) setIsLoadingMenu(false)
+      }
+    }
+    loadLiveMenu()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const [activeOrder, setActiveOrder] = useState<any>({
     id: "TGG-1048",
     trackingId: "TGG-1048",
@@ -54,7 +84,7 @@ export default function App() {
   const [showTrackingModal, setShowTrackingModal] = useState(false)
 
   // Filtering menu items
-  const filteredItems = MENU_ITEMS.filter((item) => {
+  const filteredItems = menuItems.filter((item) => {
     const matchesCat = selectedCategory === "All" || item.category === selectedCategory
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -130,22 +160,30 @@ export default function App() {
       status: "PREPARING",
     }
 
-    // Try posting to Next.js API endpoint in the background
+    // Post to live backend https://tutasuites.com/api/mobile/orders
     try {
-      fetch("/api/mobile/orders", {
+      fetch(ENDPOINTS.orders, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          type: "GRAB_AND_GO",
           trackingId: trackingCode,
           orderType: fulfillmentMode === "PICKUP" ? "TAKEAWAY" : "DELIVERY",
           customerName: orderData.customerName,
           customerPhone: orderData.customerPhone,
+          deliveryAddress: orderData.deliveryAddress,
+          deliveryArea: orderData.deliveryArea,
           items: orderData.items,
+          subtotal: orderData.subtotal,
+          deliveryFee: orderData.deliveryFee,
           totalAmount: orderData.totalAmount,
           notes: orderData.notes,
+          paymentMethod: orderData.paymentMethod,
         }),
-      }).catch(() => {})
-    } catch {}
+      }).catch((e) => console.warn("Live order sync err:", e))
+    } catch (e) {
+      console.warn("Could not reach backend:", e)
+    }
 
     setActiveOrder(newOrder)
     setCartItems([])
@@ -154,7 +192,7 @@ export default function App() {
 
   // Open Plate Builder with first rice dish
   const handleOpenPlateBuilder = () => {
-    const jollof = MENU_ITEMS.find((i) => i.id === "rice-jollof") || MENU_ITEMS[0]
+    const jollof = menuItems.find((i) => i.id === "rice-jollof" || i.name.toLowerCase().includes("jollof")) || menuItems[0]
     setSelectedItem(jollof)
     setShowDetailModal(true)
   }
