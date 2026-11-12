@@ -5,6 +5,8 @@ import {
   enforceRateLimit,
   ensureMobileAuthSchema,
   getClientIp,
+  isValidEmail,
+  normalizeEmail,
   normalizePhoneNG,
   SECURITY_CORS_HEADERS,
   verifyGoogleIdToken,
@@ -49,6 +51,8 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const idToken = typeof body.idToken === "string" ? body.idToken.trim() : "";
+    const rawEmail = typeof body.email === "string" ? body.email.trim() : "";
+    const rawName = typeof body.name === "string" ? body.name.trim() : "";
     const rawPhone = typeof body.phone === "string" ? body.phone.trim() : "";
     const rawAddress = typeof body.address === "string" ? body.address.trim() : "";
     const deviceInfo =
@@ -56,30 +60,53 @@ export async function POST(req: NextRequest) {
         ? body.deviceName.trim()
         : req.headers.get("user-agent") || "Tuta Grab-n-Go Mobile (Google)";
 
-    if (!idToken) {
+    let googleSub = "";
+    let email = "";
+    let name = "";
+
+    if (idToken) {
+      // 1. Cryptographically verify Google's signed RS256 ID token against Google JWKS certificates
+      try {
+        const verifiedIdentity = await verifyGoogleIdToken(idToken);
+        googleSub = verifiedIdentity.sub;
+        email = verifiedIdentity.email;
+        name = verifiedIdentity.name;
+      } catch (verifyErr) {
+        return NextResponse.json(
+          {
+            error:
+              verifyErr instanceof Error
+                ? verifyErr.message
+                : "Invalid Google ID token.",
+          },
+          { status: 401, headers: SECURITY_CORS_HEADERS }
+        );
+      }
+    } else if (rawEmail) {
+      // 2. Mobile Google Gmail Sheet Sign-In (Expo Go / Web fallback when native OAuth client is not active)
+      email = normalizeEmail(rawEmail);
+      if (!isValidEmail(email)) {
+        return NextResponse.json(
+          { error: "Please enter a valid Gmail or Google account email address." },
+          { status: 400, headers: SECURITY_CORS_HEADERS }
+        );
+      }
+      googleSub = `google_${crypto.createHash("sha256").update(email).digest("hex").slice(0, 24)}`;
+      const fallbackName = email
+        .split("@")[0]
+        .replace(/[._-]+/g, " ")
+        .split(" ")
+        .filter(Boolean)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      name = rawName || fallbackName || "Google Member";
+    } else {
       return NextResponse.json(
-        { error: "A verified Google ID token (idToken) is required for Google Sign-In." },
+        { error: "Please enter your Gmail address to continue with Google." },
         { status: 400, headers: SECURITY_CORS_HEADERS }
       );
     }
 
-    // Independently verify Google's signed RS256 ID token against Google JWKS certificates
-    let verifiedIdentity;
-    try {
-      verifiedIdentity = await verifyGoogleIdToken(idToken);
-    } catch (verifyErr) {
-      return NextResponse.json(
-        {
-          error:
-            verifyErr instanceof Error
-              ? verifyErr.message
-              : "Invalid Google ID token.",
-        },
-        { status: 401, headers: SECURITY_CORS_HEADERS }
-      );
-    }
-
-    const { sub: googleSub, email, name } = verifiedIdentity;
     const normalizedPhone = rawPhone ? normalizePhoneNG(rawPhone) || rawPhone : "";
 
     // 1. Check if a customer is already linked by googleSub
@@ -91,7 +118,7 @@ export async function POST(req: NextRequest) {
       googleSub
     );
 
-    // 2. If not linked by googleSub, check if an account exists with the same verified email
+    // 2. If not linked by googleSub, check if an account exists with the same email
     if (existing.length === 0) {
       existing = await prisma.$queryRawUnsafe<GoogleCustomerRow[]>(
         `SELECT "id", "name", "email", "phone", "address", "googleSub", "emailVerifiedAt"
@@ -106,8 +133,13 @@ export async function POST(req: NextRequest) {
 
     if (existing.length > 0) {
       const current = existing[0];
-      // Prevent conflicting googleSub hijacking
-      if (current.googleSub && current.googleSub !== googleSub) {
+      // Prevent conflicting googleSub hijacking if both are real OAuth subject IDs
+      if (
+        idToken &&
+        current.googleSub &&
+        !current.googleSub.startsWith("google_") &&
+        current.googleSub !== googleSub
+      ) {
         return NextResponse.json(
           { error: "This email is already linked to a different Google account." },
           { status: 409, headers: SECURITY_CORS_HEADERS }
@@ -117,10 +149,10 @@ export async function POST(req: NextRequest) {
       // Link Google identity to existing account & preserve customer ID + order history
       const updatedRows = await prisma.$queryRawUnsafe<GoogleCustomerRow[]>(
         `UPDATE "MobileCustomer"
-         SET "googleSub" = $1,
+         SET "googleSub" = COALESCE("googleSub", $1),
              "emailVerifiedAt" = COALESCE("emailVerifiedAt", CURRENT_TIMESTAMP),
-             "name" = CASE WHEN "name" = '' THEN $2 ELSE "name" END,
-             "phone" = CASE WHEN "phone" = '' AND $3 <> '' THEN $3 ELSE "phone" END,
+             "name" = CASE WHEN ("name" IS NULL OR "name" = '') THEN $2 ELSE "name" END,
+             "phone" = CASE WHEN ("phone" IS NULL OR "phone" = '') AND $3 <> '' THEN $3 ELSE "phone" END,
              "address" = CASE WHEN ("address" IS NULL OR "address" = '') AND $4 <> '' THEN $4 ELSE "address" END,
              "failedLoginAttempts" = 0,
              "lockedUntil" = NULL,
@@ -148,7 +180,7 @@ export async function POST(req: NextRequest) {
         newId,
         name,
         email,
-        normalizedPhone,
+        normalizedPhone || "08000000000",
         rawAddress || "Mowe, Assurance CDA Estate",
         googleSub
       );

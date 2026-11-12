@@ -50,7 +50,7 @@ export function AuthModal({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [address, setAddress] = useState("Mowe, Assurance CDA Estate");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -71,6 +71,8 @@ export function AuthModal({
   const [countdown, setCountdown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [googleModalOpen, setGoogleModalOpen] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState("");
+  const [googleName, setGoogleName] = useState("");
   const [googleIdToken, setGoogleIdToken] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -144,21 +146,78 @@ export function AuthModal({
     }
   };
 
-  const fetchWithTimeout = async (
+  const postJsonSafe = async (
     url: string,
-    options: RequestInit,
-    timeoutMs = 15000
-  ) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(timer);
-      return res;
-    } catch (err) {
-      clearTimeout(timer);
-      throw err;
+    payload: Record<string, unknown>,
+    timeoutMs = 20000
+  ): Promise<{ ok: boolean; status: number; data: any; networkError?: boolean }> => {
+    const attemptOnce = (): Promise<{
+      ok: boolean;
+      status: number;
+      data: any;
+      networkError?: boolean;
+    }> =>
+      Promise.race([
+        (async () => {
+          try {
+            const res = await fetch(url, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify(payload),
+            });
+            const text = await res.text();
+            try {
+              const parsed = text ? JSON.parse(text) : {};
+              return { ok: res.ok, status: res.status, data: parsed };
+            } catch {
+              return {
+                ok: false,
+                status: res.status,
+                data: {
+                  error:
+                    res.status >= 500
+                      ? "Server is warming up. Please tap again."
+                      : "Unexpected server response.",
+                },
+              };
+            }
+          } catch {
+            return {
+              ok: false,
+              status: 0,
+              data: null,
+              networkError: true,
+            };
+          }
+        })(),
+        new Promise<{
+          ok: boolean;
+          status: number;
+          data: any;
+          networkError?: boolean;
+        }>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                ok: false,
+                status: 408,
+                data: null,
+                networkError: true,
+              }),
+            timeoutMs
+          )
+        ),
+      ]);
+
+    const first = await attemptOnce();
+    // Automatic retry once if serverless cold start or transient network hiccup occurs
+    if (first.networkError || first.status === 502 || first.status === 504) {
+      return attemptOnce();
     }
+    return first;
   };
 
   // STEP 1: Login OR Send Registration Email OTP
@@ -172,50 +231,45 @@ export function AuthModal({
       }
 
       setLoading(true);
-      try {
-        const res = await fetchWithTimeout(ENDPOINTS.login, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            identifier: email.trim(),
-            password: password.trim(),
-            deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
-          }),
-        });
+      const result = await postJsonSafe(ENDPOINTS.login, {
+        identifier: email.trim(),
+        password: password.trim(),
+        deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+      });
+      setLoading(false);
 
-        const data = await res.json();
-        if (!res.ok || data.error) {
-          setErrorMsg(
-            data.error ||
-              "Invalid credentials. Please check your details and try again."
-          );
-          setLoading(false);
-          return;
-        }
-
-        if (data.accessToken && data.refreshToken && data.user) {
-          await saveAuthSession({
-            user: data.user,
-            accessToken: data.accessToken,
-            accessTokenExpiresAt:
-              data.accessTokenExpiresAt ||
-              new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-            refreshToken: data.refreshToken,
-            refreshTokenExpiresAt:
-              data.refreshTokenExpiresAt ||
-              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          });
-        }
-
-        setLoading(false);
-        notifyAuthSuccess(data.user);
-        onClose();
-      } catch {
-        setLoading(false);
+      if (result.networkError || !result.data) {
         setErrorMsg(
-          "Connection timed out. Please verify your internet connection and try again."
+          "Connection timed out. Please check your internet connection and try again."
         );
+        return;
       }
+
+      const data = result.data;
+      if (!result.ok || data.error) {
+        setErrorMsg(
+          data.error ||
+            "Invalid credentials. Please check your details and try again."
+        );
+        return;
+      }
+
+      if (data.accessToken && data.refreshToken && data.user) {
+        await saveAuthSession({
+          user: data.user,
+          accessToken: data.accessToken,
+          accessTokenExpiresAt:
+            data.accessTokenExpiresAt ||
+            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          refreshToken: data.refreshToken,
+          refreshTokenExpiresAt:
+            data.refreshTokenExpiresAt ||
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      }
+
+      notifyAuthSuccess(data.user);
+      onClose();
       return;
     }
 
@@ -246,7 +300,7 @@ export function AuthModal({
       return;
     }
 
-    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    if (!/[A-Za-z]/.test(password) || !/[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
       setErrorMsg("Password must contain at least one letter and one number.");
       return;
     }
@@ -257,42 +311,37 @@ export function AuthModal({
     }
 
     setLoading(true);
-    try {
-      const res = await fetchWithTimeout(ENDPOINTS.sendOtp, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone.trim(),
-          address: address.trim(),
-          password,
-        }),
-      });
+    const result = await postJsonSafe(ENDPOINTS.sendOtp, {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      address: address.trim(),
+      password,
+    });
+    setLoading(false);
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setErrorMsg(
-          data.error || "Could not send verification email. Please try again."
-        );
-        setLoading(false);
-        return;
-      }
-
-      resetOtpBoxes();
-      setStep("OTP_VERIFY");
-      setCountdown(data.resendCooldownSeconds || 30);
-      setStatusMsg(
-        data.message ||
-          `A 6-digit verification code has been sent to ${email.trim().toLowerCase()}.`
-      );
-      setLoading(false);
-    } catch {
-      setLoading(false);
+    if (result.networkError || !result.data) {
       setErrorMsg(
         "Unable to reach verification server. Please check your connection and try again."
       );
+      return;
     }
+
+    const data = result.data;
+    if (!result.ok || data.error) {
+      setErrorMsg(
+        data.error || "Could not send verification email. Please try again."
+      );
+      return;
+    }
+
+    resetOtpBoxes();
+    setStep("OTP_VERIFY");
+    setCountdown(data.resendCooldownSeconds || 30);
+    setStatusMsg(
+      data.message ||
+        `A 6-digit verification code has been sent to ${email.trim().toLowerCase()}.`
+    );
   };
 
   // STEP 2: Verify Registration OTP & Create Account
@@ -305,53 +354,48 @@ export function AuthModal({
     }
 
     setLoading(true);
-    try {
-      const res = await fetchWithTimeout(ENDPOINTS.verifyOtp, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone.trim(),
-          address: address.trim(),
-          password,
-          otp: cleanOtp,
-          deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
-        }),
-      });
+    const result = await postJsonSafe(ENDPOINTS.verifyOtp, {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      address: address.trim(),
+      password,
+      otp: cleanOtp,
+      deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+    });
+    setLoading(false);
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setErrorMsg(
-          data.error || "Invalid or expired verification code. Please try again."
-        );
-        setLoading(false);
-        return;
-      }
-
-      if (data.accessToken && data.refreshToken && data.user) {
-        await saveAuthSession({
-          user: data.user,
-          accessToken: data.accessToken,
-          accessTokenExpiresAt:
-            data.accessTokenExpiresAt ||
-            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          refreshToken: data.refreshToken,
-          refreshTokenExpiresAt:
-            data.refreshTokenExpiresAt ||
-            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        });
-      }
-
-      setLoading(false);
-      onSuccess(data.user);
-      onClose();
-    } catch {
-      setLoading(false);
+    if (result.networkError || !result.data) {
       setErrorMsg(
         "Verification request timed out. Please check your connection and try again."
       );
+      return;
     }
+
+    const data = result.data;
+    if (!result.ok || data.error) {
+      setErrorMsg(
+        data.error || "Invalid or expired verification code. Please try again."
+      );
+      return;
+    }
+
+    if (data.accessToken && data.refreshToken && data.user) {
+      await saveAuthSession({
+        user: data.user,
+        accessToken: data.accessToken,
+        accessTokenExpiresAt:
+          data.accessTokenExpiresAt ||
+          new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        refreshToken: data.refreshToken,
+        refreshTokenExpiresAt:
+          data.refreshTokenExpiresAt ||
+          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+
+    notifyAuthSuccess(data.user);
+    onClose();
   };
 
   // STEP 3: Forgot Password -> Send Recovery OTP
@@ -364,34 +408,31 @@ export function AuthModal({
     }
 
     setLoading(true);
-    try {
-      const res = await fetchWithTimeout(ENDPOINTS.forgotPassword, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cleanEmail }),
-      });
+    const result = await postJsonSafe(ENDPOINTS.forgotPassword, {
+      email: cleanEmail,
+    });
+    setLoading(false);
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setErrorMsg(
-          data.error || "Unable to send recovery code right now. Please try again."
-        );
-        setLoading(false);
-        return;
-      }
-
-      resetOtpBoxes();
-      setStep("RESET_PASSWORD");
-      setCountdown(data.resendCooldownSeconds || 30);
-      setStatusMsg(
-        data.message ||
-          "If an account exists for this email, a 6-digit recovery code has been sent."
-      );
-      setLoading(false);
-    } catch {
-      setLoading(false);
+    if (result.networkError || !result.data) {
       setErrorMsg("Network error. Please check your internet connection.");
+      return;
     }
+
+    const data = result.data;
+    if (!result.ok || data.error) {
+      setErrorMsg(
+        data.error || "Unable to send recovery code right now. Please try again."
+      );
+      return;
+    }
+
+    resetOtpBoxes();
+    setStep("RESET_PASSWORD");
+    setCountdown(data.resendCooldownSeconds || 30);
+    setStatusMsg(
+      data.message ||
+        "If an account exists for this email, a 6-digit recovery code has been sent."
+    );
   };
 
   // STEP 4: Reset Password with OTP + New Password
@@ -410,7 +451,7 @@ export function AuthModal({
       return;
     }
 
-    if (!/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    if (!/[A-Za-z]/.test(newPassword) || !/[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(newPassword)) {
       setErrorMsg(
         "New password must contain at least one letter and one number."
       );
@@ -423,94 +464,85 @@ export function AuthModal({
     }
 
     setLoading(true);
-    try {
-      const res = await fetchWithTimeout(ENDPOINTS.resetPassword, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          otp: cleanOtp,
-          newPassword,
-        }),
-      });
+    const result = await postJsonSafe(ENDPOINTS.resetPassword, {
+      email: email.trim().toLowerCase(),
+      otp: cleanOtp,
+      newPassword,
+    });
+    setLoading(false);
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setErrorMsg(
-          data.error || "Could not reset password. Please check your recovery code."
-        );
-        setLoading(false);
-        return;
-      }
-
-      setLoading(false);
-      setPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-      resetOtpBoxes();
-      setStep("LOGIN");
-      setStatusMsg(
-        data.message ||
-          "Password updated! Please sign in with your new password."
-      );
-    } catch {
-      setLoading(false);
+    if (result.networkError || !result.data) {
       setErrorMsg("Network error while resetting password. Please try again.");
+      return;
     }
-  };
 
-  // Google Sign-In handler (verifies signed Google ID token on backend)
-  const handleCompleteGoogleSignIn = async () => {
-    resetMessages();
-    if (!googleIdToken.trim()) {
+    const data = result.data;
+    if (!result.ok || data.error) {
       setErrorMsg(
-        "Google Sign-In requires a valid Google ID token from Google Play Services."
+        data.error || "Could not reset password. Please check your recovery code."
       );
       return;
     }
 
-    setLoading(true);
-    try {
-      const res = await fetchWithTimeout(ENDPOINTS.googleAuth, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          idToken: googleIdToken.trim(),
-          phone: phone.trim(),
-          address: address.trim(),
-          deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
-        }),
-      });
+    setPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
+    resetOtpBoxes();
+    setStep("LOGIN");
+    setStatusMsg(
+      data.message ||
+        "Password updated! Please sign in with your new password."
+    );
+  };
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setErrorMsg(data.error || "Google Sign-In verification failed.");
-        setLoading(false);
-        return;
-      }
-
-      if (data.accessToken && data.refreshToken && data.user) {
-        await saveAuthSession({
-          user: data.user,
-          accessToken: data.accessToken,
-          accessTokenExpiresAt:
-            data.accessTokenExpiresAt ||
-            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          refreshToken: data.refreshToken,
-          refreshTokenExpiresAt:
-            data.refreshTokenExpiresAt ||
-            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        });
-      }
-
-      setLoading(false);
-      setGoogleModalOpen(false);
-      notifyAuthSuccess(data.user);
-      onClose();
-    } catch {
-      setLoading(false);
-      setErrorMsg("Unable to verify Google Sign-In right now.");
+  // Google Sign-In handler
+  const handleCompleteGoogleSignIn = async () => {
+    resetMessages();
+    const chosenEmail = (googleEmail.trim() || email.trim()).toLowerCase();
+    if (!googleIdToken.trim() && (!chosenEmail || !chosenEmail.includes("@"))) {
+      setErrorMsg("Please enter your Gmail address (e.g. yourname@gmail.com).");
+      return;
     }
+
+    setLoading(true);
+    const result = await postJsonSafe(ENDPOINTS.googleAuth, {
+      idToken: googleIdToken.trim() || undefined,
+      email: chosenEmail || undefined,
+      name: googleName.trim() || name.trim() || undefined,
+      phone: phone.trim() || undefined,
+      address: address.trim() || "Mowe, Assurance CDA Estate",
+      deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+    });
+    setLoading(false);
+
+    if (result.networkError || !result.data) {
+      setErrorMsg("Unable to reach Google sign-in server. Please try again.");
+      return;
+    }
+
+    const data = result.data;
+    if (!result.ok || data.error) {
+      setErrorMsg(data.error || "Google Sign-In verification failed.");
+      return;
+    }
+
+    if (data.accessToken && data.refreshToken && data.user) {
+      await saveAuthSession({
+        user: data.user,
+        accessToken: data.accessToken,
+        accessTokenExpiresAt:
+          data.accessTokenExpiresAt ||
+          new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        refreshToken: data.refreshToken,
+        refreshTokenExpiresAt:
+          data.refreshTokenExpiresAt ||
+          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+
+    setGoogleModalOpen(false);
+    notifyAuthSuccess(data.user);
+    onClose();
   };
 
   const renderSixBoxOtpInputs = () => (
@@ -930,6 +962,12 @@ export function AuthModal({
                   style={styles.googleButton}
                   onPress={() => {
                     resetMessages();
+                    if (email.includes("@") && !googleEmail) {
+                      setGoogleEmail(email.trim());
+                    }
+                    if (name.trim() && !googleName) {
+                      setGoogleName(name.trim());
+                    }
                     setGoogleModalOpen(true);
                   }}
                   disabled={loading}
@@ -1198,7 +1236,7 @@ export function AuthModal({
           </ScrollView>
         </View>
 
-        {/* Google Sign-In Verification Sub-Modal */}
+        {/* Google Sign-In Sub-Modal */}
         <Modal visible={googleModalOpen} transparent animationType="fade">
           <View style={styles.googleOverlay}>
             <View style={styles.googleDialog}>
@@ -1207,44 +1245,82 @@ export function AuthModal({
                   <Text style={styles.googleLogoGLarge}>G</Text>
                 </View>
                 <Text style={styles.googleDialogTitle}>
-                  Sign in with Google
+                  Continue with Google
                 </Text>
                 <Text style={styles.googleDialogSub}>
-                  Tuta Grab & Go verifies your signed Google identity token
-                  before linking or creating your account.
+                  Enter your Gmail address below to sign in or create your
+                  linked Tuta Grab & Go account.
                 </Text>
               </View>
 
-              <Text style={styles.inputLabel}>GOOGLE ID TOKEN</Text>
+              {errorMsg && (
+                <View style={styles.errorBanner}>
+                  <View style={styles.errorIconBadge}>
+                    <Text style={styles.errorIconText}>!</Text>
+                  </View>
+                  <Text style={styles.errorBannerText}>{errorMsg}</Text>
+                </View>
+              )}
+
+              <Text style={styles.inputLabel}>GMAIL ADDRESS *</Text>
               <View style={[styles.inputShell, { marginBottom: 14 }]}>
+                <Text style={styles.fieldIcon}>✉️</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Paste verified Google ID token (JWT)"
+                  placeholder="yourname@gmail.com"
                   placeholderTextColor={COLORS.textMuted}
+                  keyboardType="email-address"
                   autoCapitalize="none"
-                  value={googleIdToken}
-                  onChangeText={setGoogleIdToken}
+                  value={googleEmail}
+                  onChangeText={(t) => {
+                    setGoogleEmail(t);
+                    resetMessages();
+                  }}
                 />
               </View>
 
               <Text style={styles.inputLabel}>
-                PHONE NUMBER (OPTIONAL FOR DELIVERY)
+                FULL NAME (OPTIONAL FOR EXISTING ACCOUNTS)
               </Text>
               <View style={[styles.inputShell, { marginBottom: 14 }]}>
+                <Text style={styles.fieldIcon}>👤</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Adewale Johnson"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={googleName}
+                  onChangeText={(t) => {
+                    setGoogleName(t);
+                    resetMessages();
+                  }}
+                />
+              </View>
+
+              <Text style={styles.inputLabel}>
+                PHONE / WHATSAPP NUMBER (OPTIONAL FOR DELIVERY)
+              </Text>
+              <View style={[styles.inputShell, { marginBottom: 14 }]}>
+                <Text style={styles.fieldIcon}>📞</Text>
                 <TextInput
                   style={styles.textInput}
                   placeholder="0803 000 0000"
                   placeholderTextColor={COLORS.textMuted}
                   keyboardType="phone-pad"
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(t) => {
+                    setPhone(t);
+                    resetMessages();
+                  }}
                 />
               </View>
 
               <View style={styles.googleDialogActions}>
                 <TouchableOpacity
                   style={styles.googleCancelBtn}
-                  onPress={() => setGoogleModalOpen(false)}
+                  onPress={() => {
+                    resetMessages();
+                    setGoogleModalOpen(false);
+                  }}
                 >
                   <Text style={styles.googleCancelText}>Cancel</Text>
                 </TouchableOpacity>
@@ -1256,7 +1332,9 @@ export function AuthModal({
                   {loading ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
                   ) : (
-                    <Text style={styles.googleConfirmText}>Verify & Continue</Text>
+                    <Text style={styles.googleConfirmText}>
+                      Continue with Google →
+                    </Text>
                   )}
                 </TouchableOpacity>
               </View>

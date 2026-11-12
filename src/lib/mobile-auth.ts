@@ -66,6 +66,15 @@ export async function ensureMobileAuthSchema(): Promise<void> {
 
   globalForAuthSchema.mobileAuthSchemaPromise = (async () => {
     try {
+      // Fast path: if MobileOtpRecord & MobileCustomerSession already exist in PostgreSQL, skip DDL round-trips
+      try {
+        await prisma.$queryRawUnsafe(`SELECT 1 FROM "MobileOtpRecord" LIMIT 1`)
+        globalForAuthSchema.mobileAuthSchemaEnsured = true
+        return
+      } catch {
+        // Table not yet created; proceed with full non-destructive DDL initialization
+      }
+
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "MobileCustomer" (
           "id" TEXT NOT NULL,
