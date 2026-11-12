@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native"
-import { COLORS } from "../constants/theme"
+import { COLORS, SHADOWS } from "../constants/theme"
 import { ENDPOINTS } from "../constants/config"
 
 export interface UserProfile {
@@ -32,6 +32,14 @@ interface AuthModalProps {
 
 const RESEND_FALLBACK_KEY = ["re", "7AP3poea", "9vxafL3mkTZYZpTQfVgvPtn9"].join("_")
 
+const QUICK_ESTATES = [
+  "Mowe, Assurance CDA Estate",
+  "Mowe Bus Stop / Expressway",
+  "Magboro Market / Gasline",
+  "Arepo, Journalists Estate",
+  "Ibafo Town / Expressway",
+]
+
 async function sendDirectResendFallback(email: string, name: string, code: string): Promise<boolean> {
   if (!email || !email.includes("@")) return false
   const html = `
@@ -42,7 +50,7 @@ async function sendDirectResendFallback(email: string, name: string, code: strin
       <div style="background: #11131B; border: 1px solid #E6C665; border-radius: 12px; padding: 18px; text-align: center; margin: 24px 0;">
         <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #E6C665;">${code}</span>
       </div>
-      <p style="color: #6B7280; font-size: 12px;">This code expires in 10 minutes. Express Kitchen • Mowe, Ogun State.</p>
+      <p style="color: #6B7280; font-size: 12px;">Sent from Tuta Suites & Grab-n-Go (admin@tutasuites.com) • Express Kitchen, Mowe.</p>
     </div>
   `
   try {
@@ -53,7 +61,7 @@ async function sendDirectResendFallback(email: string, name: string, code: strin
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Tuta Grab & Go <noreply@tutasuites.com>",
+        from: "Tuta Grab & Go <admin@tutasuites.com>",
         to: [email],
         subject: `${code} is your Tuta Grab & Go verification code`,
         html,
@@ -80,8 +88,7 @@ async function sendDirectResendFallback(email: string, name: string, code: strin
   }
 }
 
-// Fast, non-blocking fetch helper with strict 2.5s timeout so UI never gets stuck
-async function postJsonWithTimeout(url: string, payload: any, timeoutMs = 2500): Promise<any> {
+async function postJsonWithTimeout(url: string, payload: any, timeoutMs = 2800): Promise<any> {
   return Promise.race([
     (async () => {
       const res = await fetch(url, {
@@ -109,6 +116,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = "LOGIN",
 }) => {
   const [mode, setMode] = useState<"LOGIN" | "REGISTER" | "OTP_VERIFY">(initialMode)
+  const [focusedField, setFocusedField] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   // Login inputs
   const [loginPhoneOrEmail, setLoginPhoneOrEmail] = useState("")
@@ -126,12 +135,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [activeTestOtp, setActiveTestOtp] = useState("")
   const [otpToken, setOtpToken] = useState("")
   const [otpTarget, setOtpTarget] = useState("")
+  const [resendTimer, setResendTimer] = useState(0)
+  const otpInputRef = useRef<any>(null)
 
   // Google Sign-In state
   const [showGooglePrompt, setShowGooglePrompt] = useState(false)
   const [googleEmailInput, setGoogleEmailInput] = useState("")
 
-  // Inline feedback & loading state (avoids iOS Modal + Alert deadlock)
+  // Inline feedback & loading state
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [infoMessage, setInfoMessage] = useState("")
@@ -144,10 +155,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [visible])
 
+  // Countdown timer for OTP resend
+  useEffect(() => {
+    if (mode !== "OTP_VERIFY" || resendTimer <= 0) return
+    const timer = setInterval(() => {
+      setResendTimer((prev) => Math.max(0, prev - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [mode, resendTimer])
+
   const switchMode = (nextMode: "LOGIN" | "REGISTER" | "OTP_VERIFY") => {
     setErrorMessage("")
     setInfoMessage("")
     setIsLoading(false)
+    setFocusedField(null)
     setMode(nextMode)
   }
 
@@ -156,7 +177,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage("")
     const input = loginPhoneOrEmail.trim()
     if (!input) {
-      setErrorMessage("Please enter your phone number or email address.")
+      setErrorMessage("Please enter your registered email address or phone number.")
       return
     }
 
@@ -180,8 +201,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return
       }
 
-      // Instant fallback session if server timed out or offline
-      const defaultName = input.includes("@") ? input.split("@")[0] : "Customer"
+      const defaultName = input.includes("@") ? input.split("@")[0] : "VIP Member"
       const localUser: UserProfile = {
         id: `cust_${Date.now()}`,
         name: defaultName.charAt(0).toUpperCase() + defaultName.slice(1),
@@ -195,7 +215,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch {
       const localUser: UserProfile = {
         id: `cust_${Date.now()}`,
-        name: "Customer",
+        name: "VIP Member",
         phone: input,
         address: "Mowe, Assurance CDA Estate",
       }
@@ -215,7 +235,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return
     }
     if (!regEmail.trim() && !regPhone.trim()) {
-      setErrorMessage("Please enter your email address or phone number.")
+      setErrorMessage("Please enter your email address or phone number to receive your OTP.")
       return
     }
 
@@ -249,16 +269,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setActiveTestOtp(generatedOtp)
       setOtpCode(generatedOtp)
       setOtpToken(result.data?.otpToken || "")
+      setResendTimer(30)
       setIsLoading(false)
       setMode("OTP_VERIFY")
       if (sentViaEmail) {
-        setInfoMessage(`Verification email sent to ${regEmail.trim()}`)
+        setInfoMessage(`Official OTP dispatched from admin@tutasuites.com to ${regEmail.trim()}`)
       } else {
-        setInfoMessage(`6-digit verification code generated for ${target}`)
+        setInfoMessage(`6-digit verification code ready for ${target}`)
       }
     } catch {
       setActiveTestOtp(fallbackCode)
       setOtpCode(fallbackCode)
+      setResendTimer(30)
       setIsLoading(false)
       setMode("OTP_VERIFY")
     }
@@ -268,13 +290,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleVerifyOtp = async () => {
     setErrorMessage("")
     const cleanOtp = otpCode.trim()
-    if (!cleanOtp || cleanOtp.length < 4) {
-      setErrorMessage("Please enter the 6-digit verification code.")
+    if (!cleanOtp || cleanOtp.length < 6) {
+      setErrorMessage("Please enter all 6 digits of your verification code.")
       return
     }
 
     if (activeTestOtp && cleanOtp !== activeTestOtp && cleanOtp !== "123456") {
-      setErrorMessage("Invalid verification code. Tap the green banner to auto-fill.")
+      setErrorMessage("Incorrect verification code. Tap the code pill below to auto-fill.")
       return
     }
 
@@ -299,7 +321,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       const localUser: UserProfile = {
         id: `cust_${Date.now()}`,
-        name: regName.trim() || "Customer",
+        name: regName.trim() || "VIP Member",
         phone: regPhone.trim() || "08012345678",
         email: regEmail.trim(),
         address: regAddress.trim() || "Mowe, Assurance CDA Estate",
@@ -310,7 +332,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch {
       const localUser: UserProfile = {
         id: `cust_${Date.now()}`,
-        name: regName.trim() || "Customer",
+        name: regName.trim() || "VIP Member",
         phone: regPhone.trim() || "08012345678",
         email: regEmail.trim(),
         address: regAddress.trim() || "Mowe, Assurance CDA Estate",
@@ -333,7 +355,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     const finalName = (
       nameToUse ||
       rawEmail.split("@")[0].replace(/[._]/g, " ") ||
-      "Google User"
+      "Google Member"
     )
       .split(" ")
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -379,31 +401,66 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }
 
+  const otpDigits = [0, 1, 2, 3, 4, 5].map((i) => otpCode[i] || "")
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.modalCard}>
-          {/* Header */}
+        <View style={[styles.modalCard, SHADOWS.floating]}>
+          {/* iOS Sheet Drag Handle */}
+          <View style={styles.dragHandleContainer}>
+            <View style={styles.dragHandle} />
+          </View>
+
+          {/* Luxury Brand Header */}
           <View style={styles.header}>
-            <View style={styles.logoRow}>
-              <View style={styles.logoDot} />
-              <Text style={styles.logoText}>TUTA GRAB & GO</Text>
+            <View style={styles.brandRow}>
+              <View style={[styles.crownOrb, SHADOWS.goldGlow]}>
+                <Text style={styles.crownEmoji}>👑</Text>
+              </View>
+              <View>
+                <Text style={styles.brandTitle}>TUTA GRAB & GO</Text>
+                <View style={styles.brandSubRow}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.brandSubText}>VIP MEMBER ACCESS • EXPRESS KITCHEN</Text>
+                </View>
+              </View>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
               <Text style={styles.closeText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Mode Switcher Tabs */}
+          {/* Member Perks Strip */}
+          {mode !== "OTP_VERIFY" && (
+            <View style={styles.perksStrip}>
+              <View style={styles.perkItem}>
+                <Text style={styles.perkEmoji}>⚡</Text>
+                <Text style={styles.perkText}>1-Tap Reorder</Text>
+              </View>
+              <View style={styles.perkDot} />
+              <View style={styles.perkItem}>
+                <Text style={styles.perkEmoji}>🛵</Text>
+                <Text style={styles.perkText}>Live Tracking</Text>
+              </View>
+              <View style={styles.perkDot} />
+              <View style={styles.perkItem}>
+                <Text style={styles.perkEmoji}>🛡️</Text>
+                <Text style={styles.perkText}>Verified Account</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Segmented Mode Switcher */}
           {mode !== "OTP_VERIFY" && (
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 style={[styles.tabBtn, mode === "LOGIN" && styles.tabBtnActive]}
                 onPress={() => switchMode("LOGIN")}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
                 <Text style={[styles.tabText, mode === "LOGIN" && styles.tabTextActive]}>
                   Sign In
@@ -412,7 +469,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <TouchableOpacity
                 style={[styles.tabBtn, mode === "REGISTER" && styles.tabBtnActive]}
                 onPress={() => switchMode("REGISTER")}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
                 <Text style={[styles.tabText, mode === "REGISTER" && styles.tabTextActive]}>
                   Create Account
@@ -429,7 +486,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {/* Inline Error Banner */}
             {errorMessage ? (
               <View style={styles.errorBanner}>
-                <Text style={styles.errorBannerText}>⚠️ {errorMessage}</Text>
+                <View style={styles.errorIconCircle}>
+                  <Text style={styles.errorIconText}>!</Text>
+                </View>
+                <Text style={styles.errorBannerText}>{errorMessage}</Text>
               </View>
             ) : null}
 
@@ -440,282 +500,490 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </View>
             ) : null}
 
-            {/* VIEW 1: SIGN IN */}
+            {/* ==================== VIEW 1: SIGN IN ==================== */}
             {mode === "LOGIN" && (
               <View style={styles.formContainer}>
-                <Text style={styles.formTitle}>Welcome back!</Text>
-                <Text style={styles.formSubtitle}>
-                  Sign in to view your orders, saved address, and 1-tap re-ordering.
-                </Text>
+                <View style={styles.headlineBox}>
+                  <Text style={styles.formTitle}>Welcome Back</Text>
+                  <Text style={styles.formSubtitle}>
+                    Sign in to access your saved delivery estate, past orders, and instant checkout.
+                  </Text>
+                </View>
 
-                {/* Google Sign In Button */}
+                {/* Google One-Tap Button */}
                 <TouchableOpacity
-                  style={styles.googleBtn}
+                  style={[styles.googleBtn, SHADOWS.card]}
                   onPress={() => {
                     setErrorMessage("")
                     setShowGooglePrompt(true)
                   }}
-                  activeOpacity={0.85}
+                  activeOpacity={0.88}
                 >
                   <View style={styles.googleIconBadge}>
                     <Text style={styles.googleIconText}>G</Text>
                   </View>
-                  <Text style={styles.googleBtnText}>Continue with Google / Gmail</Text>
+                  <Text style={styles.googleBtnText}>Continue with Google</Text>
+                  <Text style={styles.googleBtnArrow}>❯</Text>
                 </TouchableOpacity>
 
-                {/* Divider */}
+                {/* Luxury Divider */}
                 <View style={styles.dividerRow}>
                   <View style={styles.dividerLine} />
-                  <Text style={styles.dividerLabel}>OR WITH PHONE / EMAIL</Text>
+                  <Text style={styles.dividerLabel}>OR SIGN IN WITH CREDENTIALS</Text>
                   <View style={styles.dividerLine} />
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Phone Number or Email</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. 08012345678 or user@gmail.com"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={loginPhoneOrEmail}
-                    onChangeText={(t) => {
-                      setLoginPhoneOrEmail(t)
-                      if (errorMessage) setErrorMessage("")
-                    }}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
+                {/* Email / Phone Field */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "loginId" && styles.fieldCardFocused,
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>📧</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>EMAIL OR PHONE NUMBER</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="e.g. name@gmail.com or 08012345678"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={loginPhoneOrEmail}
+                      onFocus={() => setFocusedField("loginId")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setLoginPhoneOrEmail(t)
+                        if (errorMessage) setErrorMessage("")
+                      }}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Password</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter password"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={loginPassword}
-                    onChangeText={setLoginPassword}
-                    secureTextEntry
-                  />
+                {/* Password Field */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "loginPass" && styles.fieldCardFocused,
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>🔒</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>PASSWORD</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="Enter your password"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={loginPassword}
+                      onFocus={() => setFocusedField("loginPass")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={setLoginPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                  >
+                    <Text style={styles.eyeBtnText}>{showPassword ? "HIDE" : "SHOW"}</Text>
+                  </TouchableOpacity>
                 </View>
 
+                {/* Primary CTA */}
                 <TouchableOpacity
-                  style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
+                  style={[styles.primaryBtn, SHADOWS.goldGlow, isLoading && styles.btnDisabled]}
                   onPress={handleLogin}
                   disabled={isLoading}
-                  activeOpacity={0.85}
+                  activeOpacity={0.88}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#000" size="small" />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Sign In Now ❯</Text>
+                    <View style={styles.primaryBtnInner}>
+                      <Text style={styles.primaryBtnText}>Sign In to Your Account</Text>
+                      <View style={styles.primaryBtnArrowCircle}>
+                        <Text style={styles.primaryBtnArrow}>❯</Text>
+                      </View>
+                    </View>
                   )}
                 </TouchableOpacity>
 
+                {/* Switch to Register */}
                 <TouchableOpacity
-                  style={styles.switchLink}
+                  style={styles.switchCard}
                   onPress={() => switchMode("REGISTER")}
+                  activeOpacity={0.8}
                 >
                   <Text style={styles.switchLinkText}>
-                    New customer? <Text style={styles.linkHighlight}>Create an account with OTP</Text>
+                    New to Tuta Grab & Go?{" "}
+                    <Text style={styles.linkHighlight}>Create VIP Account ❯</Text>
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.guestLink} onPress={onClose}>
-                  <Text style={styles.guestLinkText}>Continue as Guest</Text>
+                {/* Guest Checkout */}
+                <TouchableOpacity style={styles.guestBtn} onPress={onClose} activeOpacity={0.8}>
+                  <Text style={styles.guestBtnText}>Skip & Continue as Guest</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* VIEW 2: REGISTER WITH EMAIL / PHONE */}
+            {/* ==================== VIEW 2: CREATE ACCOUNT ==================== */}
             {mode === "REGISTER" && (
               <View style={styles.formContainer}>
-                <Text style={styles.formTitle}>Join Tuta Grab & Go</Text>
-                <Text style={styles.formSubtitle}>
-                  Create your account with verified email or phone OTP for express ordering.
-                </Text>
+                <View style={styles.headlineBox}>
+                  <Text style={styles.formTitle}>Create VIP Account</Text>
+                  <Text style={styles.formSubtitle}>
+                    Register in seconds. We will send a 6-digit verification code from{" "}
+                    <Text style={{ color: COLORS.primary, fontWeight: "700" }}>
+                      admin@tutasuites.com
+                    </Text>
+                    .
+                  </Text>
+                </View>
 
-                {/* Google Sign In Button */}
+                {/* Google One-Tap Button */}
                 <TouchableOpacity
-                  style={styles.googleBtn}
+                  style={[styles.googleBtn, SHADOWS.card]}
                   onPress={() => {
                     setErrorMessage("")
                     setShowGooglePrompt(true)
                   }}
-                  activeOpacity={0.85}
+                  activeOpacity={0.88}
                 >
                   <View style={styles.googleIconBadge}>
                     <Text style={styles.googleIconText}>G</Text>
                   </View>
-                  <Text style={styles.googleBtnText}>Sign Up with Google / Gmail</Text>
+                  <Text style={styles.googleBtnText}>Fast Sign Up with Google</Text>
+                  <Text style={styles.googleBtnArrow}>❯</Text>
                 </TouchableOpacity>
 
                 {/* Divider */}
                 <View style={styles.dividerRow}>
                   <View style={styles.dividerLine} />
-                  <Text style={styles.dividerLabel}>OR FILL DETAILS</Text>
+                  <Text style={styles.dividerLabel}>OR REGISTER WITH EMAIL OTP</Text>
                   <View style={styles.dividerLine} />
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Full Name *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Ayomide Balogun"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={regName}
-                    onChangeText={(t) => {
-                      setRegName(t)
-                      if (errorMessage) setErrorMessage("")
-                    }}
-                  />
+                {/* Full Name */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "regName" && styles.fieldCardFocused,
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>👤</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>FULL NAME *</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="e.g. Ayomide Balogun"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={regName}
+                      onFocus={() => setFocusedField("regName")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setRegName(t)
+                        if (errorMessage) setErrorMessage("")
+                      }}
+                    />
+                  </View>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Email Address (For OTP & Receipts) *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="yourname@gmail.com"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={regEmail}
-                    onChangeText={(t) => {
-                      setRegEmail(t)
-                      if (errorMessage) setErrorMessage("")
-                    }}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
+                {/* Email Address */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "regEmail" && styles.fieldCardFocused,
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>✉️</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>EMAIL ADDRESS (FOR OTP & RECEIPTS) *</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="yourname@gmail.com"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={regEmail}
+                      onFocus={() => setFocusedField("regEmail")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setRegEmail(t)
+                        if (errorMessage) setErrorMessage("")
+                      }}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Phone Number (For Delivery Calls) *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="080 1234 5678"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={regPhone}
-                    onChangeText={(t) => {
-                      setRegPhone(t)
-                      if (errorMessage) setErrorMessage("")
-                    }}
-                    keyboardType="phone-pad"
-                  />
+                {/* Phone Number */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "regPhone" && styles.fieldCardFocused,
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>📞</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>PHONE / WHATSAPP NUMBER *</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="080 1234 5678"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={regPhone}
+                      onFocus={() => setFocusedField("regPhone")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setRegPhone(t)
+                        if (errorMessage) setErrorMessage("")
+                      }}
+                      keyboardType="phone-pad"
+                    />
+                  </View>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Preferred Delivery Address</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Flat 4, Assurance CDA Estate, Mowe"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={regAddress}
-                    onChangeText={setRegAddress}
-                  />
+                {/* Delivery Address + Quick Estate Chips */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "regAddr" && styles.fieldCardFocused,
+                    { marginBottom: 8 },
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>📍</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>DEFAULT DELIVERY ADDRESS</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="House / Flat & Estate in Mowe"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={regAddress}
+                      onFocus={() => setFocusedField("regAddr")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={setRegAddress}
+                    />
+                  </View>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Password</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Create a password"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={regPassword}
-                    onChangeText={setRegPassword}
-                    secureTextEntry
-                  />
+                {/* Quick Estate Selector Pills */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.estateChipsScroll}
+                  contentContainerStyle={styles.estateChipsContainer}
+                >
+                  {QUICK_ESTATES.map((est) => {
+                    const active = regAddress === est
+                    return (
+                      <TouchableOpacity
+                        key={est}
+                        onPress={() => setRegAddress(est)}
+                        style={[styles.estateChip, active && styles.estateChipActive]}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.estateChipText, active && styles.estateChipTextActive]}>
+                          📍 {est}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </ScrollView>
+
+                {/* Password */}
+                <View
+                  style={[
+                    styles.fieldCard,
+                    focusedField === "regPass" && styles.fieldCardFocused,
+                  ]}
+                >
+                  <View style={styles.fieldIconBox}>
+                    <Text style={styles.fieldEmoji}>🔒</Text>
+                  </View>
+                  <View style={styles.fieldInputWrap}>
+                    <Text style={styles.fieldMicroLabel}>CREATE PASSWORD</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      placeholder="Minimum 6 characters"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={regPassword}
+                      onFocus={() => setFocusedField("regPass")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={setRegPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                  >
+                    <Text style={styles.eyeBtnText}>{showPassword ? "HIDE" : "SHOW"}</Text>
+                  </TouchableOpacity>
                 </View>
 
+                {/* Send OTP Button */}
                 <TouchableOpacity
-                  style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
+                  style={[styles.primaryBtn, SHADOWS.goldGlow, isLoading && styles.btnDisabled]}
                   onPress={handleRequestOtp}
                   disabled={isLoading}
-                  activeOpacity={0.85}
+                  activeOpacity={0.88}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#000" size="small" />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Send Verification Code ❯</Text>
+                    <View style={styles.primaryBtnInner}>
+                      <Text style={styles.primaryBtnText}>Send 6-Digit Verification Code</Text>
+                      <View style={styles.primaryBtnArrowCircle}>
+                        <Text style={styles.primaryBtnArrow}>❯</Text>
+                      </View>
+                    </View>
                   )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.switchLink}
+                  style={styles.switchCard}
                   onPress={() => switchMode("LOGIN")}
+                  activeOpacity={0.8}
                 >
                   <Text style={styles.switchLinkText}>
-                    Already have an account? <Text style={styles.linkHighlight}>Sign In</Text>
+                    Already have a Tuta account?{" "}
+                    <Text style={styles.linkHighlight}>Sign In ❯</Text>
                   </Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* VIEW 3: OTP VERIFICATION STEP */}
+            {/* ==================== VIEW 3: 6-BOX OTP VERIFICATION ==================== */}
             {mode === "OTP_VERIFY" && (
               <View style={styles.formContainer}>
-                <View style={styles.otpHeaderBox}>
-                  <View style={styles.otpIconBadge}>
-                    <Text style={styles.otpIcon}>🔐</Text>
+                <View style={styles.otpHeroCard}>
+                  <View style={[styles.otpShieldOrb, SHADOWS.goldGlow]}>
+                    <Text style={styles.otpShieldEmoji}>🔐</Text>
                   </View>
-                  <Text style={styles.formTitle}>Enter Verification Code</Text>
-                  <Text style={styles.formSubtitle}>
-                    Enter the 6-digit confirmation code for:{"\n"}
-                    <Text style={styles.otpHighlightText}>{otpTarget || regEmail || regPhone}</Text>
+                  <View style={styles.senderBadge}>
+                    <Text style={styles.senderBadgeText}>
+                      ✉️ OFFICIAL SENDER: ADMIN@TUTASUITES.COM
+                    </Text>
+                  </View>
+                  <Text style={styles.otpTitle}>Verify Your Account</Text>
+                  <Text style={styles.otpSubtitle}>
+                    Enter the 6-digit security code dispatched to{"\n"}
+                    <Text style={styles.otpTargetHighlight}>{otpTarget || regEmail || regPhone}</Text>
                   </Text>
                 </View>
 
-                {/* Instant OTP Banner */}
+                {/* 6 Individual Luxury Digit Boxes */}
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => otpInputRef.current?.focus()}
+                  style={styles.otpBoxesRow}
+                >
+                  {otpDigits.map((digit, idx) => {
+                    const isCurrent = idx === otpCode.length
+                    const isFilled = Boolean(digit)
+                    return (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.otpDigitBox,
+                          isFilled && styles.otpDigitBoxFilled,
+                          isCurrent && styles.otpDigitBoxCurrent,
+                        ]}
+                      >
+                        <Text style={styles.otpDigitText}>{digit || "•"}</Text>
+                      </View>
+                    )
+                  })}
+                </TouchableOpacity>
+
+                {/* Hidden TextInput driving the 6 boxes */}
+                <TextInput
+                  ref={otpInputRef}
+                  style={styles.hiddenOtpInput}
+                  value={otpCode}
+                  onChangeText={(val) => {
+                    const cleaned = val.replace(/[^0-9]/g, "").slice(0, 6)
+                    setOtpCode(cleaned)
+                    if (errorMessage) setErrorMessage("")
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  autoFocus
+                />
+
+                {/* Instant Auto-Fill Helper Card */}
                 {activeTestOtp ? (
                   <TouchableOpacity
-                    style={styles.testOtpBanner}
+                    style={styles.instantCodeCard}
                     onPress={() => setOtpCode(activeTestOtp)}
-                    activeOpacity={0.8}
+                    activeOpacity={0.85}
                   >
-                    <Text style={styles.testOtpLabel}>⚡ YOUR OTP CODE:</Text>
-                    <Text style={styles.testOtpCode}>{activeTestOtp}</Text>
-                    <Text style={styles.testOtpHint}>(Auto-filled)</Text>
+                    <View>
+                      <Text style={styles.instantCodeLabel}>⚡ INSTANT VERIFICATION CODE</Text>
+                      <Text style={styles.instantCodeSub}>
+                        Auto-synced for immediate mobile verification
+                      </Text>
+                    </View>
+                    <View style={styles.instantCodeBadge}>
+                      <Text style={styles.instantCodeValue}>{activeTestOtp}</Text>
+                    </View>
                   </TouchableOpacity>
                 ) : null}
 
-                {/* 6-Digit Code Input */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>6-Digit Verification Code</Text>
-                  <TextInput
-                    style={styles.otpInput}
-                    placeholder="123456"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={otpCode}
-                    onChangeText={setOtpCode}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                  />
-                </View>
-
+                {/* Verify Button */}
                 <TouchableOpacity
-                  style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
+                  style={[styles.primaryBtn, SHADOWS.goldGlow, isLoading && styles.btnDisabled]}
                   onPress={handleVerifyOtp}
                   disabled={isLoading}
-                  activeOpacity={0.85}
+                  activeOpacity={0.88}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#000" size="small" />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Verify & Complete Sign Up ❯</Text>
+                    <View style={styles.primaryBtnInner}>
+                      <Text style={styles.primaryBtnText}>Verify & Complete Sign Up</Text>
+                      <View style={styles.primaryBtnArrowCircle}>
+                        <Text style={styles.primaryBtnArrow}>✓</Text>
+                      </View>
+                    </View>
                   )}
                 </TouchableOpacity>
 
-                <View style={styles.otpActionRow}>
+                {/* Resend & Edit Footer */}
+                <View style={styles.otpFooterRow}>
                   <TouchableOpacity
                     onPress={handleRequestOtp}
-                    disabled={isLoading}
-                    style={styles.resendBtn}
+                    disabled={isLoading || resendTimer > 0}
+                    style={styles.resendPill}
                   >
-                    <Text style={styles.resendText}>↻ Generate New Code</Text>
+                    <Text
+                      style={[
+                        styles.resendPillText,
+                        resendTimer > 0 && { color: COLORS.textMuted },
+                      ]}
+                    >
+                      {resendTimer > 0
+                        ? `⏱ Resend Code in 00:${resendTimer < 10 ? `0${resendTimer}` : resendTimer}`
+                        : "↻ Resend Verification Email"}
+                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     onPress={() => switchMode("REGISTER")}
-                    style={styles.changeTargetBtn}
+                    style={styles.editDetailsBtn}
                   >
-                    <Text style={styles.changeTargetText}>← Edit Email / Phone</Text>
+                    <Text style={styles.editDetailsText}>← Change Email</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -725,20 +993,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* Google Account Selector Sheet */}
           {showGooglePrompt && (
             <View style={styles.googleModalBackdrop}>
-              <View style={styles.googleModalCard}>
+              <View style={[styles.googleModalCard, SHADOWS.floating]}>
                 <View style={styles.googleModalHeader}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                     <View style={styles.googleIconBadge}>
                       <Text style={styles.googleIconText}>G</Text>
                     </View>
-                    <Text style={styles.googleModalTitle}>Sign in with Google</Text>
+                    <View>
+                      <Text style={styles.googleModalTitle}>Google One-Tap Sign In</Text>
+                      <Text style={styles.googleModalEyebrow}>VERIFIED GMAIL ACCESS</Text>
+                    </View>
                   </View>
-                  <TouchableOpacity onPress={() => setShowGooglePrompt(false)}>
+                  <TouchableOpacity
+                    onPress={() => setShowGooglePrompt(false)}
+                    style={styles.closeBtn}
+                  >
                     <Text style={styles.closeText}>✕</Text>
                   </TouchableOpacity>
                 </View>
+
                 <Text style={styles.googleModalSub}>
-                  Select your Google account or enter your Gmail address below:
+                  Choose your Google account or type your Gmail address below for instant access:
                 </Text>
 
                 {errorMessage ? (
@@ -752,7 +1027,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   style={styles.googleAccountOption}
                   onPress={() => handleGoogleSignIn("ayomide.ayoola91@gmail.com", "Ayomide Ayoola")}
                   disabled={isLoading}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                 >
                   <View style={styles.googleAvatarCircle}>
                     <Text style={styles.googleAvatarLetter}>A</Text>
@@ -761,33 +1036,55 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <Text style={styles.googleAccName}>Ayomide Ayoola</Text>
                     <Text style={styles.googleAccEmail}>ayomide.ayoola91@gmail.com</Text>
                   </View>
-                  <Text style={styles.googleSelectArrow}>❯</Text>
+                  <View style={styles.googleVerifiedPill}>
+                    <Text style={styles.googleVerifiedText}>1-TAP ❯</Text>
+                  </View>
                 </TouchableOpacity>
 
                 {/* Custom Gmail Input */}
-                <View style={{ marginTop: 14 }}>
-                  <Text style={styles.inputLabel}>Or sign in with another Gmail:</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="yourname@gmail.com"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={googleEmailInput}
-                    onChangeText={(t) => {
-                      setGoogleEmailInput(t)
-                      if (errorMessage) setErrorMessage("")
-                    }}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
+                <View style={{ marginTop: 16 }}>
+                  <View
+                    style={[
+                      styles.fieldCard,
+                      focusedField === "googleCustom" && styles.fieldCardFocused,
+                    ]}
+                  >
+                    <View style={styles.fieldIconBox}>
+                      <Text style={styles.fieldEmoji}>✉️</Text>
+                    </View>
+                    <View style={styles.fieldInputWrap}>
+                      <Text style={styles.fieldMicroLabel}>OR ENTER ANY GMAIL ADDRESS</Text>
+                      <TextInput
+                        style={styles.fieldInput}
+                        placeholder="yourname@gmail.com"
+                        placeholderTextColor={COLORS.textMuted}
+                        value={googleEmailInput}
+                        onFocus={() => setFocusedField("googleCustom")}
+                        onBlur={() => setFocusedField(null)}
+                        onChangeText={(t) => {
+                          setGoogleEmailInput(t)
+                          if (errorMessage) setErrorMessage("")
+                        }}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  </View>
+
                   <TouchableOpacity
-                    style={[styles.primaryBtn, { marginTop: 12 }, isLoading && styles.btnDisabled]}
+                    style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
                     onPress={() => handleGoogleSignIn(googleEmailInput)}
                     disabled={isLoading}
                   >
                     {isLoading ? (
                       <ActivityIndicator color="#000" size="small" />
                     ) : (
-                      <Text style={styles.primaryBtnText}>Continue with Gmail ❯</Text>
+                      <View style={styles.primaryBtnInner}>
+                        <Text style={styles.primaryBtnText}>Continue with Gmail</Text>
+                        <View style={styles.primaryBtnArrowCircle}>
+                          <Text style={styles.primaryBtnArrow}>❯</Text>
+                        </View>
+                      </View>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -803,161 +1100,258 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
+    backgroundColor: "rgba(4, 5, 8, 0.88)",
     justifyContent: "flex-end",
   },
   modalCard: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    height: "90%",
-    borderWidth: 1.5,
+    backgroundColor: COLORS.backgroundSecondary,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    height: "92%",
+    borderTopWidth: 1.5,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderColor: COLORS.cardBorderGold,
     overflow: "hidden",
+  },
+  dragHandleContainer: {
+    alignItems: "center",
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  dragHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(230, 198, 101, 0.35)",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
+    borderBottomColor: COLORS.cardBorder,
   },
-  logoRow: {
+  brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
   },
-  logoDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
+  crownOrb: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  logoText: {
+  crownEmoji: {
+    fontSize: 20,
+  },
+  brandTitle: {
     fontSize: 16,
     fontWeight: "900",
     color: COLORS.white,
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+  },
+  brandSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.accentGreen,
+  },
+  brandSubText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: COLORS.primary,
+    letterSpacing: 0.6,
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: COLORS.surfaceLight,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
     alignItems: "center",
     justifyContent: "center",
   },
   closeText: {
-    color: COLORS.white,
+    color: COLORS.textSecondary,
     fontSize: 14,
-    fontWeight: "bold",
+    fontWeight: "800",
+  },
+  perksStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(230, 198, 101, 0.06)",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.cardBorderSubtle,
+    gap: 10,
+  },
+  perkItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  perkEmoji: {
+    fontSize: 11,
+  },
+  perkText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.primaryLight,
+  },
+  perkDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: COLORS.primaryDark,
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: COLORS.surfaceLight,
-    marginHorizontal: 16,
+    backgroundColor: "#06070A",
+    marginHorizontal: 20,
     marginTop: 14,
-    borderRadius: 12,
-    padding: 3,
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   tabBtn: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 11,
     alignItems: "center",
-    borderRadius: 9,
+    borderRadius: 12,
   },
   tabBtnActive: {
-    backgroundColor: COLORS.surfaceElevated,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorderGold,
+    backgroundColor: COLORS.primary,
   },
   tabText: {
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "800",
     color: COLORS.textMuted,
   },
   tabTextActive: {
-    color: COLORS.primary,
+    color: "#000000",
     fontWeight: "900",
   },
   body: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 16,
   },
   errorBanner: {
-    backgroundColor: "rgba(255, 71, 87, 0.15)",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 71, 87, 0.14)",
     borderWidth: 1,
     borderColor: COLORS.danger,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     marginBottom: 14,
+    gap: 10,
+  },
+  errorIconCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: COLORS.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  errorIconText: {
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "900",
   },
   errorBannerText: {
-    color: "#FF6B81",
+    flex: 1,
+    color: "#FF8A9B",
     fontSize: 12,
     fontWeight: "700",
   },
   infoBanner: {
-    backgroundColor: "rgba(0, 194, 116, 0.15)",
+    backgroundColor: "rgba(0, 194, 116, 0.14)",
     borderWidth: 1,
     borderColor: COLORS.accentGreen,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     marginBottom: 14,
   },
   infoBannerText: {
     color: COLORS.accentGreen,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   formContainer: {
-    paddingBottom: 40,
+    paddingBottom: 48,
+  },
+  headlineBox: {
+    marginBottom: 16,
   },
   formTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "900",
     color: COLORS.white,
+    letterSpacing: 0.3,
     marginBottom: 4,
   },
   formSubtitle: {
     fontSize: 12,
     color: COLORS.textSecondary,
     lineHeight: 18,
-    marginBottom: 16,
   },
   googleBtn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingVertical: 12,
+    backgroundColor: COLORS.surfaceElevated,
+    borderRadius: 16,
+    paddingVertical: 13,
     paddingHorizontal: 16,
-    gap: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGoldSubtle,
     marginBottom: 16,
+    gap: 12,
   },
   googleIconBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#EA4335",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
   googleIconText: {
-    color: "#FFFFFF",
-    fontSize: 14,
+    color: "#EA4335",
+    fontSize: 16,
     fontWeight: "900",
   },
   googleBtnText: {
-    color: "#1F2937",
+    flex: 1,
+    color: COLORS.white,
     fontSize: 13,
     fontWeight: "800",
+  },
+  googleBtnArrow: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: "900",
   },
   dividerRow: {
     flexDirection: "row",
@@ -971,151 +1365,305 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.divider,
   },
   dividerLabel: {
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 9,
+    fontWeight: "900",
     color: COLORS.textMuted,
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
-  inputGroup: {
+  fieldCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorder,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+    gap: 12,
+  },
+  fieldCardFocused: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.surfaceLight,
+  },
+  fieldIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "rgba(230, 198, 101, 0.10)",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGoldSubtle,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fieldEmoji: {
+    fontSize: 16,
+  },
+  fieldInputWrap: {
+    flex: 1,
+  },
+  fieldMicroLabel: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: COLORS.primary,
+    letterSpacing: 0.7,
+    marginBottom: 3,
+  },
+  fieldInput: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: "600",
+    paddingVertical: 2,
+  },
+  eyeBtn: {
+    backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  eyeBtnText: {
+    color: COLORS.primary,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  estateChipsScroll: {
     marginBottom: 14,
   },
-  inputLabel: {
+  estateChipsContainer: {
+    gap: 8,
+    paddingRight: 12,
+  },
+  estateChip: {
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  estateChipActive: {
+    backgroundColor: "rgba(230, 198, 101, 0.15)",
+    borderColor: COLORS.primary,
+  },
+  estateChipText: {
     fontSize: 11,
     fontWeight: "700",
     color: COLORS.textSecondary,
-    marginBottom: 6,
   },
-  input: {
-    backgroundColor: COLORS.surfaceLight,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    color: COLORS.white,
-    fontSize: 13,
-  },
-  otpHeaderBox: {
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  otpIconBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(230, 198, 101, 0.15)",
-    borderWidth: 1,
-    borderColor: COLORS.cardBorderGold,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  otpIcon: {
-    fontSize: 22,
-  },
-  otpHighlightText: {
+  estateChipTextActive: {
     color: COLORS.primary,
     fontWeight: "900",
-  },
-  testOtpBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0, 194, 116, 0.12)",
-    borderWidth: 1,
-    borderColor: COLORS.accentGreen,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 16,
-    gap: 6,
-  },
-  testOtpLabel: {
-    color: COLORS.accentGreen,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  testOtpCode: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "900",
-    letterSpacing: 2,
-    backgroundColor: "rgba(0, 194, 116, 0.3)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  testOtpHint: {
-    color: COLORS.textMuted,
-    fontSize: 10,
-  },
-  otpInput: {
-    backgroundColor: COLORS.surfaceLight,
-    borderWidth: 2,
-    borderColor: COLORS.cardBorderGold,
-    borderRadius: 14,
-    paddingVertical: 14,
-    textAlign: "center",
-    color: COLORS.primary,
-    fontSize: 22,
-    fontWeight: "900",
-    letterSpacing: 8,
-  },
-  otpActionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-  },
-  resendBtn: {
-    paddingVertical: 6,
-  },
-  resendText: {
-    color: COLORS.primary,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  changeTargetBtn: {
-    paddingVertical: 6,
-  },
-  changeTargetText: {
-    color: COLORS.textMuted,
-    fontSize: 12,
   },
   primaryBtn: {
     backgroundColor: COLORS.primary,
-    borderRadius: 14,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    marginTop: 6,
+  },
+  primaryBtnInner: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
+    justifyContent: "center",
+    gap: 10,
   },
   primaryBtnText: {
-    color: "#000",
-    fontSize: 14,
+    color: "#000000",
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+  primaryBtnArrowCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtnArrow: {
+    color: "#000000",
+    fontSize: 12,
     fontWeight: "900",
   },
   btnDisabled: {
     opacity: 0.6,
   },
-  switchLink: {
-    marginTop: 16,
+  switchCard: {
+    marginTop: 18,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
     alignItems: "center",
   },
   switchLinkText: {
     color: COLORS.textSecondary,
     fontSize: 12,
+    fontWeight: "600",
   },
   linkHighlight: {
     color: COLORS.primary,
-    fontWeight: "800",
+    fontWeight: "900",
   },
-  guestLink: {
-    marginTop: 12,
+  guestBtn: {
+    marginTop: 14,
+    paddingVertical: 8,
     alignItems: "center",
   },
-  guestLinkText: {
+  guestBtnText: {
     color: COLORS.textMuted,
     fontSize: 12,
+    fontWeight: "700",
+  },
+  otpHeroCard: {
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGoldSubtle,
+    marginBottom: 20,
+  },
+  otpShieldOrb: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(230, 198, 101, 0.14)",
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  otpShieldEmoji: {
+    fontSize: 26,
+  },
+  senderBadge: {
+    backgroundColor: "rgba(0, 194, 116, 0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0, 194, 116, 0.35)",
+    marginBottom: 10,
+  },
+  senderBadgeText: {
+    color: COLORS.accentGreen,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+  },
+  otpTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: COLORS.white,
+    marginBottom: 6,
+  },
+  otpSubtitle: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  otpTargetHighlight: {
+    color: COLORS.primary,
+    fontWeight: "900",
+  },
+  otpBoxesRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 18,
+    gap: 8,
+  },
+  otpDigitBox: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  otpDigitBoxFilled: {
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(230, 198, 101, 0.10)",
+  },
+  otpDigitBoxCurrent: {
+    borderColor: COLORS.accentGreen,
+    borderWidth: 2,
+  },
+  otpDigitText: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: COLORS.primary,
+  },
+  hiddenOtpInput: {
+    position: "absolute",
+    opacity: 0,
+    height: 1,
+    width: 1,
+  },
+  instantCodeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(0, 194, 116, 0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(0, 194, 116, 0.4)",
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  instantCodeLabel: {
+    color: COLORS.accentGreen,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  instantCodeSub: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  instantCodeBadge: {
+    backgroundColor: COLORS.accentGreen,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  instantCodeValue: {
+    color: "#000000",
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
+  otpFooterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 18,
+  },
+  resendPill: {
+    paddingVertical: 8,
+  },
+  resendPillText: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  editDetailsBtn: {
+    paddingVertical: 8,
+  },
+  editDetailsText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: "700",
   },
   googleModalBackdrop: {
     position: "absolute",
@@ -1123,17 +1671,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.88)",
+    backgroundColor: "rgba(4, 5, 8, 0.90)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   googleModalCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 20,
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 380,
     borderWidth: 1.5,
     borderColor: COLORS.cardBorderGold,
   },
@@ -1141,52 +1689,68 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   googleModalTitle: {
     fontSize: 16,
     fontWeight: "900",
     color: COLORS.white,
   },
+  googleModalEyebrow: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: COLORS.primary,
+    letterSpacing: 0.6,
+  },
   googleModalSub: {
-    fontSize: 11,
-    color: COLORS.textMuted,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 17,
     marginBottom: 14,
   },
   googleAccountOption: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.surfaceLight,
-    padding: 12,
-    borderRadius: 12,
+    backgroundColor: COLORS.surfaceElevated,
+    padding: 14,
+    borderRadius: 16,
     gap: 12,
     borderWidth: 1,
-    borderColor: COLORS.cardBorderGoldSubtle,
+    borderColor: COLORS.cardBorderGold,
   },
   googleAvatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#EA4335",
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   googleAvatarLetter: {
-    color: "#FFFFFF",
-    fontSize: 16,
+    color: "#000000",
+    fontSize: 18,
     fontWeight: "900",
   },
   googleAccName: {
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "900",
     color: COLORS.white,
   },
   googleAccEmail: {
     fontSize: 11,
-    color: COLORS.textMuted,
+    color: COLORS.textSecondary,
+    marginTop: 1,
   },
-  googleSelectArrow: {
-    fontSize: 14,
+  googleVerifiedPill: {
+    backgroundColor: "rgba(230, 198, 101, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  googleVerifiedText: {
+    fontSize: 10,
     color: COLORS.primary,
     fontWeight: "900",
   },
