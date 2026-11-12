@@ -1,81 +1,188 @@
 import { NextResponse } from "next/server"
-import crypto from "crypto"
-import { sendResendEmail } from "@/lib/email"
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-}
-
-const SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "tuta-grab-and-go-secret-2026"
-
-export function signOtpToken(identifier: string, code: string, expiresAt: number): string {
-  const payload = `${identifier}|${code}|${expiresAt}`
-  const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("hex")
-  return Buffer.from(`${payload}|${sig}`).toString("base64")
-}
+import { prisma } from "@/lib/prisma"
+import { sendResendEmail, buildLuxuryOtpEmailHtml } from "@/lib/email"
+import {
+  SECURITY_CORS_HEADERS,
+  ensureMobileAuthSchema,
+  normalizeEmail,
+  isValidEmail,
+  normalizePhoneNG,
+  isValidPhoneNG,
+  getPhoneLookupVariants,
+  validatePasswordStrength,
+  hashPasswordArgon2id,
+  issueOtpRecord,
+  enforceRateLimit,
+  getClientIp,
+} from "@/lib/mobile-auth"
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
+  return new NextResponse(null, { status: 204, headers: SECURITY_CORS_HEADERS })
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
-    const { email, phone, name = "Valued Customer" } = body
+    const ip = getClientIp(req)
+    const ipLimit = await enforceRateLimit({
+      key: `otp_send:ip:${ip}`,
+      maxAttempts: 10,
+      windowMs: 10 * 60 * 1000,
+      blockDurationMs: 15 * 60 * 1000,
+    })
 
-    const identifier = (email || phone || "").trim().toLowerCase()
-    if (!identifier) {
+    if (!ipLimit.allowed) {
       return NextResponse.json(
-        { success: false, error: "Email or phone number is required." },
-        { status: 400, headers: CORS_HEADERS }
+        {
+          success: false,
+          error: `Too many verification requests. Please wait ${ipLimit.retryAfterSeconds} seconds.`,
+          retryAfterSeconds: ipLimit.retryAfterSeconds,
+        },
+        { status: 429, headers: SECURITY_CORS_HEADERS }
       )
     }
 
-    // Generate secure 6-digit OTP
-    const code = Math.floor(100000 + Math.random() * 900000).toString()
-    const expiresAt = Date.now() + 10 * 60 * 1000 // 10 minutes
-    const otpToken = signOtpToken(identifier, code, expiresAt)
+    const body = await req.json().catch(() => ({}))
+    const rawName = typeof body.name === "string" ? body.name.trim() : ""
+    const rawEmail = typeof body.email === "string" ? body.email : ""
+    const rawPhone = typeof body.phone === "string" ? body.phone : ""
+    const rawAddress = typeof body.address === "string" ? body.address.trim() : ""
+    const rawPassword = typeof body.password === "string" ? body.password : ""
 
-    let emailSent = false
-    if (email && email.includes("@")) {
-      const html = `
-        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; background: #08090D; color: #FFFFFF; padding: 32px; border-radius: 16px; border: 1px solid #E6C665;">
-          <h2 style="color: #E6C665; margin-top: 0;">👑 TUTA GRAB & GO</h2>
-          <p style="color: #A3A8B8; font-size: 14px;">Hello ${name},</p>
-          <p style="color: #FFFFFF; font-size: 15px;">Use the 6-digit verification code below to complete your sign-in:</p>
-          <div style="background: #11131B; border: 1px solid #E6C665; border-radius: 12px; padding: 18px; text-align: center; margin: 24px 0;">
-            <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #E6C665;">${code}</span>
-          </div>
-          <p style="color: #6B7280; font-size: 12px;">This code expires in 10 minutes. Express Kitchen • Mowe, Ogun State.</p>
-        </div>
-      `
-      const result = await sendResendEmail(
-        email.trim(),
-        `${code} is your Tuta Grab & Go verification code`,
-        html
+    if (!rawName || rawName.length < 2 || rawName.length > 100) {
+      return NextResponse.json(
+        { success: false, error: "Please enter your full name (2–100 characters)." },
+        { status: 400, headers: SECURITY_CORS_HEADERS }
       )
-      emailSent = result.ok
+    }
+
+    const email = normalizeEmail(rawEmail)
+    if (!isValidEmail(email)) {
+      return NextResponse.json(
+        { success: false, error: "Please enter a valid email address to receive your verification code." },
+        { status: 400, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    const phone = normalizePhoneNG(rawPhone)
+    if (!isValidPhoneNG(phone)) {
+      return NextResponse.json(
+        { success: false, error: "Please enter a valid Nigerian phone number (e.g. 08012345678)." },
+        { status: 400, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    const pwCheck = validatePasswordStrength(rawPassword)
+    if (!pwCheck.valid) {
+      return NextResponse.json(
+        { success: false, error: pwCheck.error },
+        { status: 400, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    const emailLimit = await enforceRateLimit({
+      key: `otp_send:email:${email}`,
+      maxAttempts: 5,
+      windowMs: 10 * 60 * 1000,
+      blockDurationMs: 15 * 60 * 1000,
+    })
+
+    if (!emailLimit.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Please wait ${emailLimit.retryAfterSeconds} seconds before requesting another code.`,
+          retryAfterSeconds: emailLimit.retryAfterSeconds,
+        },
+        { status: 429, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    await ensureMobileAuthSchema()
+
+    // Check if email or phone is already registered and verified
+    const phoneVariants = getPhoneLookupVariants(phone)
+    const existingCustomers = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT "id", "email", "phone", "emailVerifiedAt"
+       FROM "MobileCustomer"
+       WHERE LOWER("email") = $1 OR "phone" = ANY($2::text[])
+       LIMIT 1`,
+      email,
+      phoneVariants
+    )
+
+    if (existingCustomers.length > 0 && existingCustomers[0].emailVerifiedAt) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "An account with this email or phone number already exists. Please sign in instead.",
+        },
+        { status: 409, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    // Pre-hash password with Argon2id so plaintext password is never persisted
+    const passwordHash = await hashPasswordArgon2id(rawPassword)
+
+    const otpIssued = await issueOtpRecord({
+      identifier: email,
+      purpose: "REGISTER",
+      ipAddress: ip,
+      payload: {
+        name: rawName,
+        email,
+        phone,
+        address: rawAddress || "Mowe, Assurance CDA Estate",
+        passwordHash,
+      },
+    })
+
+    if (!otpIssued.allowed || !otpIssued.otpCode) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Please wait ${otpIssued.retryAfterSeconds} seconds before requesting a new code.`,
+          retryAfterSeconds: otpIssued.retryAfterSeconds,
+        },
+        { status: 429, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    const html = buildLuxuryOtpEmailHtml({
+      name: rawName,
+      code: otpIssued.otpCode,
+      purpose: "REGISTER",
+    })
+
+    const emailResult = await sendResendEmail(
+      email,
+      "Your Tuta Grab & Go Verification Code",
+      html
+    )
+
+    if (!emailResult.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unable to send verification email at this moment. Please check your email address and try again.",
+        },
+        { status: 502, headers: SECURITY_CORS_HEADERS }
+      )
     }
 
     return NextResponse.json(
       {
         success: true,
-        message: emailSent
-          ? `Verification code sent to ${email}`
-          : `Verification code generated for ${email || phone}`,
-        otpToken,
-        testOtp: code,
-        emailSent,
+        message: `A 6-digit verification code has been sent to ${email}.`,
         expiresInSeconds: 600,
+        resendCooldownSeconds: 30,
       },
-      { headers: CORS_HEADERS }
+      { headers: SECURITY_CORS_HEADERS }
     )
-  } catch (error: any) {
+  } catch (error) {
+    console.error("Send OTP error:", error instanceof Error ? error.message : "Unknown error")
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to generate OTP" },
-      { status: 500, headers: CORS_HEADERS }
+      { success: false, error: "Unable to process registration request. Please try again." },
+      { status: 500, headers: SECURITY_CORS_HEADERS }
     )
   }
 }

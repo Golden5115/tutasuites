@@ -21,6 +21,9 @@
         "backgroundColor": "#0A0A0C"
       },
       "package": "com.tutasuites.app"
-    }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }

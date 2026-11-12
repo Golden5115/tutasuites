@@ -1,25 +1,23 @@
 import tls from "tls"
 import { prisma } from "@/lib/prisma"
 
-const DEFAULT_SMTP_HOST = "mail.spacemail.com"
-const DEFAULT_SMTP_PORT = 465
-const DEFAULT_SMTP_USER = "admin@tutasuites.com"
-const DEFAULT_SMTP_PASS = ["Tutasuites2026", "$"].join("")
-const DEFAULT_RESEND_KEY = ["re", "7AP3poea", "9vxafL3mkTZYZpTQfVgvPtn9"].join("_")
-
 /**
  * Send email directly via Spaceship Spacemail SMTP over TLS (mail.spacemail.com:465)
- * Sender: Tuta Grab & Go <admin@tutasuites.com>
+ * Sender: "Tuta Suites & Grab-n-Go" <admin@tutasuites.com>
  */
 export async function sendSpacemailSmtp(
   to: string,
   subject: string,
   htmlContent: string
 ): Promise<{ ok: boolean; provider?: string; error?: string }> {
-  const host = process.env.SMTP_HOST || DEFAULT_SMTP_HOST
-  const port = Number(process.env.SMTP_PORT || DEFAULT_SMTP_PORT)
-  const user = process.env.SMTP_USER || DEFAULT_SMTP_USER
-  const pass = process.env.SMTP_PASS || DEFAULT_SMTP_PASS
+  const host = process.env.SMTP_HOST || "mail.spacemail.com"
+  const port = Number(process.env.SMTP_PORT || 465)
+  const user = process.env.SMTP_USER || "admin@tutasuites.com"
+  const pass = process.env.SMTP_PASS
+
+  if (!pass) {
+    return { ok: false, error: "SMTP_PASS is not configured in environment variables." }
+  }
 
   return new Promise((resolve) => {
     let settled = false
@@ -44,7 +42,7 @@ export async function sendSpacemailSmtp(
         rejectUnauthorized: false,
       },
       () => {
-        // Connected over TLS, waiting for 220 banner
+        // Connected over TLS, waiting for 220 greeting
       }
     )
 
@@ -61,8 +59,6 @@ export async function sendSpacemailSmtp(
 
       const lines = buffer.trim().split("\r\n")
       const lastLine = lines[lines.length - 1] || ""
-      // Multi-line SMTP responses have a hyphen after the 3 digits (e.g. "250-PIPELINING")
-      // Final line has a space after 3 digits (e.g. "250 OK")
       if (!/^\d{3}(\s|$)/.test(lastLine)) return
 
       const code = parseInt(lastLine.slice(0, 3), 10)
@@ -133,7 +129,7 @@ export async function sendSpacemailSmtp(
 
 /**
  * Primary Email Dispatcher:
- * 1. Sends from admin@tutasuites.com via Spaceship Spacemail SMTP (mail.spacemail.com:465)
+ * 1. Sends from "Tuta Suites & Grab-n-Go" <admin@tutasuites.com> via Spaceship Spacemail SMTP
  * 2. Falls back to Resend API if SMTP port is unreachable
  */
 export async function sendResendEmail(
@@ -152,7 +148,11 @@ export async function sendResendEmail(
   }
 
   // 2. Backup: Resend API
-  const apiKey = process.env.RESEND_API_KEY || DEFAULT_RESEND_KEY
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    return { ok: false, error: smtpResult.error || "Email provider not configured." }
+  }
+
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -161,7 +161,7 @@ export async function sendResendEmail(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Tuta Grab & Go <onboarding@resend.dev>",
+        from: process.env.EMAIL_FROM || "Tuta Grab & Go <onboarding@resend.dev>",
         to: [to.trim()],
         subject,
         html: htmlContent,
@@ -177,6 +177,38 @@ export async function sendResendEmail(
   } catch (err: any) {
     return { ok: false, error: smtpResult.error || err.message }
   }
+}
+
+export function buildLuxuryOtpEmailHtml(params: {
+  name: string
+  code: string
+  purpose: "REGISTER" | "PASSWORD_RESET"
+}): string {
+  const heading =
+    params.purpose === "PASSWORD_RESET"
+      ? "Password Recovery Code"
+      : "Verify Your VIP Account"
+  const description =
+    params.purpose === "PASSWORD_RESET"
+      ? "We received a request to reset the password for your Tuta Grab & Go account. Enter the 6-digit security code below to set a new password:"
+      : "Welcome to Tuta Grab & Go! Enter the 6-digit verification code below in the mobile app to verify your email and activate your account:"
+
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; background: #08090D; color: #FFFFFF; padding: 32px; border-radius: 18px; border: 1px solid #E6C665;">
+      <div style="margin-bottom: 16px;">
+        <span style="font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: #E6C665;">👑 TUTA SUITES & GRAB-N-GO</span>
+      </div>
+      <h2 style="color: #FFFFFF; margin: 0 0 12px 0; font-size: 22px;">${heading}</h2>
+      <p style="color: #A3A8B8; font-size: 14px; line-height: 1.5;">Hello ${params.name},</p>
+      <p style="color: #F8EDCE; font-size: 14px; line-height: 1.6;">${description}</p>
+      <div style="background: #11131B; border: 1.5px solid #E6C665; border-radius: 14px; padding: 20px; text-align: center; margin: 24px 0;">
+        <span style="font-size: 34px; font-weight: 900; letter-spacing: 10px; color: #E6C665; font-family: monospace;">${params.code}</span>
+      </div>
+      <p style="color: #A3A8B8; font-size: 12px; line-height: 1.5;">This verification code expires in <strong>10 minutes</strong>. For your security, never share this code with anyone.</p>
+      <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 20px 0;" />
+      <p style="color: #6B7280; font-size: 11px; margin: 0;">Tuta Suites & Grab-n-Go Express Kitchen • No 3 Assurance CDA, Orimerunmu, Mowe, Ogun State.</p>
+    </div>
+  `
 }
 
 export async function sendBookingConfirmation(reservationId: string) {

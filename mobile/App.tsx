@@ -21,6 +21,11 @@ import { CartModal } from "./src/components/CartModal"
 import { LiveTrackingModal } from "./src/components/LiveTrackingModal"
 import { AuthModal, UserProfile } from "./src/components/AuthModal"
 import { ProfileModal } from "./src/components/ProfileModal"
+import {
+  authenticatedFetch,
+  logoutCustomerSession,
+  restoreCustomerSession,
+} from "./src/services/authService"
 
 export default function App() {
   const [fulfillmentMode, setFulfillmentMode] = useState<"DELIVERY" | "PICKUP">("PICKUP")
@@ -35,15 +40,51 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [pastOrders, setPastOrders] = useState<any[]>([])
 
+  const syncCustomerOrders = async () => {
+    try {
+      const res = await authenticatedFetch(ENDPOINTS.myOrders)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data?.orders)) {
+          setPastOrders(data.orders)
+        }
+      }
+    } catch {
+      // Ignore transient offline error during order history fetch
+    }
+  }
+
+  // Automatic persistent session restoration from Expo SecureStore on startup
+  useEffect(() => {
+    let isMounted = true
+    const bootAuthSession = async () => {
+      const restoredUser = await restoreCustomerSession()
+      if (isMounted && restoredUser) {
+        setCurrentUser(restoredUser)
+        if (restoredUser.address) {
+          setCurrentAddress(restoredUser.address)
+        }
+        syncCustomerOrders()
+      }
+    }
+    bootAuthSession()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const handleAuthSuccess = (user: UserProfile) => {
     setCurrentUser(user)
     if (user.address) {
       setCurrentAddress(user.address)
     }
+    syncCustomerOrders()
   }
 
   const handleLogout = () => {
     setCurrentUser(null)
+    setPastOrders([])
+    logoutCustomerSession()
   }
 
   const handleReorder = (pastOrder: any) => {
@@ -186,9 +227,9 @@ export default function App() {
       status: "PREPARING",
     }
 
-    // Post to live backend https://tutasuites.com/api/mobile/orders
+    // Post to live backend https://tutasuites.com/api/mobile/orders with authenticated session
     try {
-      fetch(ENDPOINTS.orders, {
+      authenticatedFetch(ENDPOINTS.orders, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

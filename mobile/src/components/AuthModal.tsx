@@ -1,1757 +1,1754 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef } from "react";
 import {
+  Modal,
   View,
   Text,
   StyleSheet,
-  Modal,
   TouchableOpacity,
   TextInput,
   ScrollView,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-} from "react-native"
-import { COLORS, SHADOWS } from "../constants/theme"
-import { ENDPOINTS } from "../constants/config"
+} from "react-native";
+import { COLORS, SHADOWS } from "../constants/theme";
+import { ENDPOINTS } from "../constants/config";
+import {
+  AuthenticatedCustomer,
+  saveAuthSession,
+} from "../services/authService";
 
-export interface UserProfile {
-  id: string
-  name: string
-  phone: string
-  email?: string
-  address: string
-  photoUrl?: string
-}
+export type UserProfile = AuthenticatedCustomer;
 
 interface AuthModalProps {
-  visible: boolean
-  onClose: () => void
-  onAuthSuccess: (user: UserProfile) => void
-  initialMode?: "LOGIN" | "REGISTER"
+  visible: boolean;
+  onClose: () => void;
+  onSuccess?: (user: AuthenticatedCustomer) => void;
+  onAuthSuccess?: (user: AuthenticatedCustomer) => void;
 }
 
-const RESEND_FALLBACK_KEY = ["re", "7AP3poea", "9vxafL3mkTZYZpTQfVgvPtn9"].join("_")
+type AuthStep =
+  | "LOGIN"
+  | "REGISTER"
+  | "OTP_VERIFY"
+  | "FORGOT_PASSWORD"
+  | "RESET_PASSWORD";
 
-const QUICK_ESTATES = [
-  "Mowe, Assurance CDA Estate",
-  "Mowe Bus Stop / Expressway",
-  "Magboro Market / Gasline",
-  "Arepo, Journalists Estate",
-  "Ibafo Town / Expressway",
-]
+const EMPTY_OTP = ["", "", "", "", "", ""];
 
-async function sendDirectResendFallback(email: string, name: string, code: string): Promise<boolean> {
-  if (!email || !email.includes("@")) return false
-  const html = `
-    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; background: #08090D; color: #FFFFFF; padding: 32px; border-radius: 16px; border: 1px solid #E6C665;">
-      <h2 style="color: #E6C665; margin-top: 0;">👑 TUTA GRAB & GO</h2>
-      <p style="color: #A3A8B8; font-size: 14px;">Hello ${name},</p>
-      <p style="color: #FFFFFF; font-size: 15px;">Use the 6-digit verification code below to complete your sign-in:</p>
-      <div style="background: #11131B; border: 1px solid #E6C665; border-radius: 12px; padding: 18px; text-align: center; margin: 24px 0;">
-        <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #E6C665;">${code}</span>
-      </div>
-      <p style="color: #6B7280; font-size: 12px;">Sent from Tuta Suites & Grab-n-Go (admin@tutasuites.com) • Express Kitchen, Mowe.</p>
-    </div>
-  `
-  try {
-    const res1 = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_FALLBACK_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "Tuta Grab & Go <admin@tutasuites.com>",
-        to: [email],
-        subject: `${code} is your Tuta Grab & Go verification code`,
-        html,
-      }),
-    })
-    if (res1.ok) return true
-
-    const res2 = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_FALLBACK_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "Tuta Grab & Go <onboarding@resend.dev>",
-        to: [email],
-        subject: `${code} is your Tuta Grab & Go verification code`,
-        html,
-      }),
-    })
-    return res2.ok
-  } catch {
-    return false
-  }
-}
-
-async function postJsonWithTimeout(url: string, payload: any, timeoutMs = 2800): Promise<any> {
-  return Promise.race([
-    (async () => {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      const text = await res.text()
-      try {
-        return { ok: res.ok, status: res.status, data: JSON.parse(text) }
-      } catch {
-        return { ok: false, status: res.status, data: null }
-      }
-    })(),
-    new Promise((resolve) =>
-      setTimeout(() => resolve({ ok: false, status: 408, data: null, timedOut: true }), timeoutMs)
-    ),
-  ])
-}
-
-export const AuthModal: React.FC<AuthModalProps> = ({
+export function AuthModal({
   visible,
   onClose,
+  onSuccess,
   onAuthSuccess,
-  initialMode = "LOGIN",
-}) => {
-  const [mode, setMode] = useState<"LOGIN" | "REGISTER" | "OTP_VERIFY">(initialMode)
-  const [focusedField, setFocusedField] = useState<string | null>(null)
-  const [showPassword, setShowPassword] = useState(false)
+}: AuthModalProps) {
+  const notifyAuthSuccess = (user: AuthenticatedCustomer) => {
+    onSuccess?.(user);
+    onAuthSuccess?.(user);
+  };
+  const [step, setStep] = useState<AuthStep>("LOGIN");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Login inputs
-  const [loginPhoneOrEmail, setLoginPhoneOrEmail] = useState("")
-  const [loginPassword, setLoginPassword] = useState("")
+  // 6-box OTP state
+  const [otpDigits, setOtpDigits] = useState<string[]>([...EMPTY_OTP]);
+  const otpInputRefs = useRef<Array<{ focus: () => void } | null>>([
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+  ]);
 
-  // Register inputs
-  const [regName, setRegName] = useState("")
-  const [regPhone, setRegPhone] = useState("")
-  const [regEmail, setRegEmail] = useState("")
-  const [regAddress, setRegAddress] = useState("Mowe, Assurance CDA Estate")
-  const [regPassword, setRegPassword] = useState("")
-
-  // OTP Verification state
-  const [otpCode, setOtpCode] = useState("")
-  const [activeTestOtp, setActiveTestOtp] = useState("")
-  const [otpToken, setOtpToken] = useState("")
-  const [otpTarget, setOtpTarget] = useState("")
-  const [resendTimer, setResendTimer] = useState(0)
-  const otpInputRef = useRef<any>(null)
-
-  // Google Sign-In state
-  const [showGooglePrompt, setShowGooglePrompt] = useState(false)
-  const [googleEmailInput, setGoogleEmailInput] = useState("")
-
-  // Inline feedback & loading state
-  const [isLoading, setIsLoading] = useState(false)
-  const [errorMessage, setErrorMessage] = useState("")
-  const [infoMessage, setInfoMessage] = useState("")
+  const [countdown, setCountdown] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [googleModalOpen, setGoogleModalOpen] = useState(false);
+  const [googleIdToken, setGoogleIdToken] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   useEffect(() => {
-    if (visible) {
-      setIsLoading(false)
-      setErrorMessage("")
-      setInfoMessage("")
-    }
-  }, [visible])
-
-  // Countdown timer for OTP resend
-  useEffect(() => {
-    if (mode !== "OTP_VERIFY" || resendTimer <= 0) return
+    if (countdown <= 0) return;
     const timer = setInterval(() => {
-      setResendTimer((prev) => Math.max(0, prev - 1))
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [mode, resendTimer])
+      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [countdown]);
 
-  const switchMode = (nextMode: "LOGIN" | "REGISTER" | "OTP_VERIFY") => {
-    setErrorMessage("")
-    setInfoMessage("")
-    setIsLoading(false)
-    setFocusedField(null)
-    setMode(nextMode)
-  }
+  const resetMessages = () => {
+    setErrorMsg(null);
+    setStatusMsg(null);
+  };
 
-  // 1. Traditional Phone/Email Sign In
-  const handleLogin = async () => {
-    setErrorMessage("")
-    const input = loginPhoneOrEmail.trim()
-    if (!input) {
-      setErrorMessage("Please enter your registered email address or phone number.")
-      return
+  const resetOtpBoxes = () => {
+    setOtpDigits([...EMPTY_OTP]);
+  };
+
+  const getJoinedOtp = () => otpDigits.join("").replace(/\D/g, "");
+
+  const handleOtpBoxChange = (index: number, rawValue: string) => {
+    resetMessages();
+    const digitsOnly = rawValue.replace(/\D/g, "");
+
+    // Handle full paste or native oneTimeCode autofill (e.g., 6 digits pasted at once)
+    if (digitsOnly.length > 1) {
+      const next = [...otpDigits];
+      const chars = digitsOnly.slice(0, 6).split("");
+      for (let i = 0; i < 6; i++) {
+        if (index + i < 6 && chars[i]) {
+          next[index + i] = chars[i];
+        }
+      }
+      // If 6 digits were pasted starting at any box, populate all 6 boxes cleanly
+      if (digitsOnly.length >= 6) {
+        for (let i = 0; i < 6; i++) {
+          next[i] = digitsOnly[i];
+        }
+        setOtpDigits(next);
+        otpInputRefs.current[5]?.focus();
+        return;
+      }
+
+      setOtpDigits(next);
+      const nextFocusIndex = Math.min(5, index + chars.length);
+      otpInputRefs.current[nextFocusIndex]?.focus();
+      return;
     }
 
-    setIsLoading(true)
+    const next = [...otpDigits];
+    next[index] = digitsOnly;
+    setOtpDigits(next);
+
+    if (digitsOnly && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyPress = (index: number, key: string) => {
+    if (key === "Backspace") {
+      if (!otpDigits[index] && index > 0) {
+        const next = [...otpDigits];
+        next[index - 1] = "";
+        setOtpDigits(next);
+        otpInputRefs.current[index - 1]?.focus();
+      }
+    }
+  };
+
+  const fetchWithTimeout = async (
+    url: string,
+    options: RequestInit,
+    timeoutMs = 15000
+  ) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const result = await postJsonWithTimeout(ENDPOINTS.login, {
-        phoneOrEmail: input,
-        password: loginPassword,
-      })
-
-      if (result.ok && result.data?.success && result.data?.user) {
-        setIsLoading(false)
-        onAuthSuccess(result.data.user)
-        onClose()
-        return
-      }
-
-      if (result.status === 401 && result.data?.error) {
-        setIsLoading(false)
-        setErrorMessage(result.data.error)
-        return
-      }
-
-      const defaultName = input.includes("@") ? input.split("@")[0] : "VIP Member"
-      const localUser: UserProfile = {
-        id: `cust_${Date.now()}`,
-        name: defaultName.charAt(0).toUpperCase() + defaultName.slice(1),
-        phone: input.includes("@") ? "08012345678" : input,
-        email: input.includes("@") ? input : "",
-        address: "Mowe, Assurance CDA Estate",
-      }
-      setIsLoading(false)
-      onAuthSuccess(localUser)
-      onClose()
-    } catch {
-      const localUser: UserProfile = {
-        id: `cust_${Date.now()}`,
-        name: "VIP Member",
-        phone: input,
-        address: "Mowe, Assurance CDA Estate",
-      }
-      setIsLoading(false)
-      onAuthSuccess(localUser)
-      onClose()
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      throw err;
     }
-  }
+  };
 
-  // 2. Request OTP for Registration
-  const handleRequestOtp = async () => {
-    setErrorMessage("")
-    setInfoMessage("")
+  // STEP 1: Login OR Send Registration Email OTP
+  const handlePrimarySubmit = async () => {
+    resetMessages();
 
-    if (!regName.trim()) {
-      setErrorMessage("Please enter your full name.")
-      return
+    if (step === "LOGIN") {
+      if (!email.trim() || !password.trim()) {
+        setErrorMsg("Please enter your email or phone number and password.");
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const res = await fetchWithTimeout(ENDPOINTS.login, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            identifier: email.trim(),
+            password: password.trim(),
+            deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          setErrorMsg(
+            data.error ||
+              "Invalid credentials. Please check your details and try again."
+          );
+          setLoading(false);
+          return;
+        }
+
+        if (data.accessToken && data.refreshToken && data.user) {
+          await saveAuthSession({
+            user: data.user,
+            accessToken: data.accessToken,
+            accessTokenExpiresAt:
+              data.accessTokenExpiresAt ||
+              new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+            refreshToken: data.refreshToken,
+            refreshTokenExpiresAt:
+              data.refreshTokenExpiresAt ||
+              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          });
+        }
+
+        setLoading(false);
+        notifyAuthSuccess(data.user);
+        onClose();
+      } catch {
+        setLoading(false);
+        setErrorMsg(
+          "Connection timed out. Please verify your internet connection and try again."
+        );
+      }
+      return;
     }
-    if (!regEmail.trim() && !regPhone.trim()) {
-      setErrorMessage("Please enter your email address or phone number to receive your OTP.")
-      return
+
+    // REGISTRATION -> Send OTP
+    if (
+      !name.trim() ||
+      !email.trim() ||
+      !phone.trim() ||
+      !address.trim() ||
+      !password ||
+      !confirmPassword
+    ) {
+      setErrorMsg("Please complete all required fields to create your account.");
+      return;
     }
 
-    setIsLoading(true)
-    const target = regEmail.trim() || regPhone.trim()
-    setOtpTarget(target)
+    if (!email.includes("@") || !email.includes(".")) {
+      setErrorMsg(
+        "Please enter a valid email address to receive your verification code."
+      );
+      return;
+    }
 
-    const fallbackCode = Math.floor(100000 + Math.random() * 900000).toString()
+    if (password.length < 8) {
+      setErrorMsg(
+        "Password must be at least 8 characters and include a letter and a number."
+      );
+      return;
+    }
 
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      setErrorMsg("Password must contain at least one letter and one number.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMsg("Passwords do not match. Please confirm your password.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      const result = await postJsonWithTimeout(
-        ENDPOINTS.sendOtp,
-        {
-          email: regEmail.trim() || undefined,
-          phone: regPhone.trim() || undefined,
-          name: regName.trim(),
-        },
-        6000
-      )
+      const res = await fetchWithTimeout(ENDPOINTS.sendOtp, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim(),
+          address: address.trim(),
+          password,
+        }),
+      });
 
-      const generatedOtp = result.data?.testOtp || fallbackCode
-      let sentViaEmail = Boolean(result.data?.emailSent)
-      if (!sentViaEmail && regEmail.trim().includes("@")) {
-        sentViaEmail = await sendDirectResendFallback(
-          regEmail.trim(),
-          regName.trim(),
-          generatedOtp
-        )
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setErrorMsg(
+          data.error || "Could not send verification email. Please try again."
+        );
+        setLoading(false);
+        return;
       }
 
-      setActiveTestOtp(generatedOtp)
-      setOtpCode(generatedOtp)
-      setOtpToken(result.data?.otpToken || "")
-      setResendTimer(30)
-      setIsLoading(false)
-      setMode("OTP_VERIFY")
-      if (sentViaEmail) {
-        setInfoMessage(`Official OTP dispatched from admin@tutasuites.com to ${regEmail.trim()}`)
-      } else {
-        setInfoMessage(`6-digit verification code ready for ${target}`)
-      }
+      resetOtpBoxes();
+      setStep("OTP_VERIFY");
+      setCountdown(data.resendCooldownSeconds || 30);
+      setStatusMsg(
+        data.message ||
+          `A 6-digit verification code has been sent to ${email.trim().toLowerCase()}.`
+      );
+      setLoading(false);
     } catch {
-      setActiveTestOtp(fallbackCode)
-      setOtpCode(fallbackCode)
-      setResendTimer(30)
-      setIsLoading(false)
-      setMode("OTP_VERIFY")
+      setLoading(false);
+      setErrorMsg(
+        "Unable to reach verification server. Please check your connection and try again."
+      );
     }
-  }
+  };
 
-  // 3. Verify OTP and complete Registration
+  // STEP 2: Verify Registration OTP & Create Account
   const handleVerifyOtp = async () => {
-    setErrorMessage("")
-    const cleanOtp = otpCode.trim()
-    if (!cleanOtp || cleanOtp.length < 6) {
-      setErrorMessage("Please enter all 6 digits of your verification code.")
-      return
+    resetMessages();
+    const cleanOtp = getJoinedOtp();
+    if (cleanOtp.length < 6) {
+      setErrorMsg("Please enter all 6 digits of your verification code.");
+      return;
     }
 
-    if (activeTestOtp && cleanOtp !== activeTestOtp && cleanOtp !== "123456") {
-      setErrorMessage("Incorrect verification code. Tap the code pill below to auto-fill.")
-      return
-    }
-
-    setIsLoading(true)
+    setLoading(true);
     try {
-      const result = await postJsonWithTimeout(ENDPOINTS.verifyOtp, {
-        email: regEmail.trim() || undefined,
-        phone: regPhone.trim() || undefined,
-        otp: cleanOtp,
-        otpToken,
-        name: regName.trim(),
-        address: regAddress.trim() || "Mowe, Assurance CDA Estate",
-        password: regPassword,
-      })
+      const res = await fetchWithTimeout(ENDPOINTS.verifyOtp, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim(),
+          address: address.trim(),
+          password,
+          otp: cleanOtp,
+          deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+        }),
+      });
 
-      if (result.ok && result.data?.success && result.data?.user) {
-        setIsLoading(false)
-        onAuthSuccess(result.data.user)
-        onClose()
-        return
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setErrorMsg(
+          data.error || "Invalid or expired verification code. Please try again."
+        );
+        setLoading(false);
+        return;
       }
 
-      const localUser: UserProfile = {
-        id: `cust_${Date.now()}`,
-        name: regName.trim() || "VIP Member",
-        phone: regPhone.trim() || "08012345678",
-        email: regEmail.trim(),
-        address: regAddress.trim() || "Mowe, Assurance CDA Estate",
+      if (data.accessToken && data.refreshToken && data.user) {
+        await saveAuthSession({
+          user: data.user,
+          accessToken: data.accessToken,
+          accessTokenExpiresAt:
+            data.accessTokenExpiresAt ||
+            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          refreshToken: data.refreshToken,
+          refreshTokenExpiresAt:
+            data.refreshTokenExpiresAt ||
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        });
       }
-      setIsLoading(false)
-      onAuthSuccess(localUser)
-      onClose()
+
+      setLoading(false);
+      onSuccess(data.user);
+      onClose();
     } catch {
-      const localUser: UserProfile = {
-        id: `cust_${Date.now()}`,
-        name: regName.trim() || "VIP Member",
-        phone: regPhone.trim() || "08012345678",
-        email: regEmail.trim(),
-        address: regAddress.trim() || "Mowe, Assurance CDA Estate",
-      }
-      setIsLoading(false)
-      onAuthSuccess(localUser)
-      onClose()
+      setLoading(false);
+      setErrorMsg(
+        "Verification request timed out. Please check your connection and try again."
+      );
     }
-  }
+  };
 
-  // 4. Google Sign-In Handler
-  const handleGoogleSignIn = async (emailToUse?: string, nameToUse?: string) => {
-    setErrorMessage("")
-    const rawEmail = (emailToUse ?? googleEmailInput).trim().toLowerCase()
-    if (!rawEmail || !rawEmail.includes("@")) {
-      setErrorMessage("Please enter a valid Gmail address (e.g. yourname@gmail.com).")
-      return
+  // STEP 3: Forgot Password -> Send Recovery OTP
+  const handleSendForgotPasswordOtp = async () => {
+    resetMessages();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@") || !cleanEmail.includes(".")) {
+      setErrorMsg("Please enter the email address registered to your account.");
+      return;
     }
 
-    const finalName = (
-      nameToUse ||
-      rawEmail.split("@")[0].replace(/[._]/g, " ") ||
-      "Google Member"
-    )
-      .split(" ")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ")
-
-    setIsLoading(true)
+    setLoading(true);
     try {
-      const result = await postJsonWithTimeout(ENDPOINTS.googleAuth, {
-        email: rawEmail,
-        name: finalName,
-        googleId: `gid_${Date.now()}`,
-        phone: "08012345678",
-        address: "Mowe, Assurance CDA Estate",
-      })
+      const res = await fetchWithTimeout(ENDPOINTS.forgotPassword, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
 
-      const userObj: UserProfile =
-        result.ok && result.data?.user
-          ? result.data.user
-          : {
-              id: `google_${Date.now()}`,
-              name: finalName,
-              email: rawEmail,
-              phone: "08012345678",
-              address: "Mowe, Assurance CDA Estate",
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setErrorMsg(
+          data.error || "Unable to send recovery code right now. Please try again."
+        );
+        setLoading(false);
+        return;
+      }
+
+      resetOtpBoxes();
+      setStep("RESET_PASSWORD");
+      setCountdown(data.resendCooldownSeconds || 30);
+      setStatusMsg(
+        data.message ||
+          "If an account exists for this email, a 6-digit recovery code has been sent."
+      );
+      setLoading(false);
+    } catch {
+      setLoading(false);
+      setErrorMsg("Network error. Please check your internet connection.");
+    }
+  };
+
+  // STEP 4: Reset Password with OTP + New Password
+  const handleResetPasswordSubmit = async () => {
+    resetMessages();
+    const cleanOtp = getJoinedOtp();
+    if (cleanOtp.length < 6) {
+      setErrorMsg("Please enter the 6-digit recovery code sent to your email.");
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      setErrorMsg(
+        "New password must be at least 8 characters and include a letter and a number."
+      );
+      return;
+    }
+
+    if (!/[A-Za-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setErrorMsg(
+        "New password must contain at least one letter and one number."
+      );
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setErrorMsg("New passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetchWithTimeout(ENDPOINTS.resetPassword, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          otp: cleanOtp,
+          newPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setErrorMsg(
+          data.error || "Could not reset password. Please check your recovery code."
+        );
+        setLoading(false);
+        return;
+      }
+
+      setLoading(false);
+      setPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      resetOtpBoxes();
+      setStep("LOGIN");
+      setStatusMsg(
+        data.message ||
+          "Password updated! Please sign in with your new password."
+      );
+    } catch {
+      setLoading(false);
+      setErrorMsg("Network error while resetting password. Please try again.");
+    }
+  };
+
+  // Google Sign-In handler (verifies signed Google ID token on backend)
+  const handleCompleteGoogleSignIn = async () => {
+    resetMessages();
+    if (!googleIdToken.trim()) {
+      setErrorMsg(
+        "Google Sign-In requires a valid Google ID token from Google Play Services."
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetchWithTimeout(ENDPOINTS.googleAuth, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idToken: googleIdToken.trim(),
+          phone: phone.trim(),
+          address: address.trim(),
+          deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setErrorMsg(data.error || "Google Sign-In verification failed.");
+        setLoading(false);
+        return;
+      }
+
+      if (data.accessToken && data.refreshToken && data.user) {
+        await saveAuthSession({
+          user: data.user,
+          accessToken: data.accessToken,
+          accessTokenExpiresAt:
+            data.accessTokenExpiresAt ||
+            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          refreshToken: data.refreshToken,
+          refreshTokenExpiresAt:
+            data.refreshTokenExpiresAt ||
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      }
+
+      setLoading(false);
+      setGoogleModalOpen(false);
+      notifyAuthSuccess(data.user);
+      onClose();
+    } catch {
+      setLoading(false);
+      setErrorMsg("Unable to verify Google Sign-In right now.");
+    }
+  };
+
+  const renderSixBoxOtpInputs = () => (
+    <View style={styles.otpBoxesContainer}>
+      {otpDigits.map((digit, idx) => {
+        const isFocused = focusedField === `otp_${idx}`;
+        return (
+          <TextInput
+            key={idx}
+            ref={(el) => {
+              otpInputRefs.current[idx] = el;
+            }}
+            style={[
+              styles.otpSingleBox,
+              isFocused && styles.otpSingleBoxFocused,
+              Boolean(digit) && styles.otpSingleBoxFilled,
+            ]}
+            value={digit}
+            onChangeText={(val) => handleOtpBoxChange(idx, val)}
+            onKeyPress={({ nativeEvent }) =>
+              handleOtpKeyPress(idx, nativeEvent.key)
             }
-
-      setIsLoading(false)
-      setShowGooglePrompt(false)
-      onAuthSuccess(userObj)
-      onClose()
-    } catch {
-      const localUser: UserProfile = {
-        id: `google_${Date.now()}`,
-        name: finalName,
-        email: rawEmail,
-        phone: "08012345678",
-        address: "Mowe, Assurance CDA Estate",
-      }
-      setIsLoading(false)
-      setShowGooglePrompt(false)
-      onAuthSuccess(localUser)
-      onClose()
-    }
-  }
-
-  const otpDigits = [0, 1, 2, 3, 4, 5].map((i) => otpCode[i] || "")
+            onFocus={() => setFocusedField(`otp_${idx}`)}
+            onBlur={() => setFocusedField(null)}
+            keyboardType="number-pad"
+            maxLength={idx === 0 ? 6 : 1}
+            textContentType="oneTimeCode"
+            autoComplete="sms-otp"
+            selectTextOnFocus
+            placeholder="•"
+            placeholderTextColor="rgba(255,255,255,0.18)"
+          />
+        );
+      })}
+    </View>
+  );
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent>
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={[styles.modalCard, SHADOWS.floating]}>
-          {/* iOS Sheet Drag Handle */}
-          <View style={styles.dragHandleContainer}>
-            <View style={styles.dragHandle} />
-          </View>
+        <View style={styles.sheet}>
+          {/* Ambient Top Gold Glow Bar */}
+          <View style={styles.topGlowBar} />
 
-          {/* Luxury Brand Header */}
-          <View style={styles.header}>
-            <View style={styles.brandRow}>
-              <View style={[styles.crownOrb, SHADOWS.goldGlow]}>
-                <Text style={styles.crownEmoji}>👑</Text>
-              </View>
-              <View>
-                <Text style={styles.brandTitle}>TUTA GRAB & GO</Text>
-                <View style={styles.brandSubRow}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.brandSubText}>VIP MEMBER ACCESS • EXPRESS KITCHEN</Text>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
-              <Text style={styles.closeText}>✕</Text>
+          {/* Drag Handle & Close Button */}
+          <View style={styles.sheetTopBar}>
+            <View style={styles.dragHandle} />
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+              <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Member Perks Strip */}
-          {mode !== "OTP_VERIFY" && (
-            <View style={styles.perksStrip}>
-              <View style={styles.perkItem}>
-                <Text style={styles.perkEmoji}>⚡</Text>
-                <Text style={styles.perkText}>1-Tap Reorder</Text>
-              </View>
-              <View style={styles.perkDot} />
-              <View style={styles.perkItem}>
-                <Text style={styles.perkEmoji}>🛵</Text>
-                <Text style={styles.perkText}>Live Tracking</Text>
-              </View>
-              <View style={styles.perkDot} />
-              <View style={styles.perkItem}>
-                <Text style={styles.perkEmoji}>🛡️</Text>
-                <Text style={styles.perkText}>Verified Account</Text>
-              </View>
-            </View>
-          )}
-
-          {/* Segmented Mode Switcher */}
-          {mode !== "OTP_VERIFY" && (
-            <View style={styles.tabContainer}>
-              <TouchableOpacity
-                style={[styles.tabBtn, mode === "LOGIN" && styles.tabBtnActive]}
-                onPress={() => switchMode("LOGIN")}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.tabText, mode === "LOGIN" && styles.tabTextActive]}>
-                  Sign In
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tabBtn, mode === "REGISTER" && styles.tabBtnActive]}
-                onPress={() => switchMode("REGISTER")}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.tabText, mode === "REGISTER" && styles.tabTextActive]}>
-                  Create Account
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
           <ScrollView
-            style={styles.body}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.scrollContent}
           >
-            {/* Inline Error Banner */}
-            {errorMessage ? (
-              <View style={styles.errorBanner}>
-                <View style={styles.errorIconCircle}>
-                  <Text style={styles.errorIconText}>!</Text>
+            {/* Brand Emblem & Luxury Header */}
+            <View style={styles.brandSection}>
+              <View style={styles.crestOuter}>
+                <View style={styles.crestInner}>
+                  <Text style={styles.crestMonogram}>T</Text>
                 </View>
-                <Text style={styles.errorBannerText}>{errorMessage}</Text>
               </View>
-            ) : null}
+              <Text style={styles.brandBadge}>TUTA SUITES • GRAB & GO</Text>
+              <Text style={styles.heroTitle}>
+                {step === "LOGIN" && "Welcome Back"}
+                {step === "REGISTER" && "Create Your Account"}
+                {step === "OTP_VERIFY" && "Verify Your Email"}
+                {step === "FORGOT_PASSWORD" && "Account Recovery"}
+                {step === "RESET_PASSWORD" && "Set New Password"}
+              </Text>
+              <Text style={styles.heroSubtitle}>
+                {step === "LOGIN" &&
+                  "Sign in with your registered email or phone number to access express checkout and live rider tracking."}
+                {step === "REGISTER" &&
+                  "Join Tuta Grab & Go for priority kitchen dispatch and real-time order updates across Mowe."}
+                {step === "OTP_VERIFY" &&
+                  `Enter the 6-digit security code sent to ${email.trim().toLowerCase()}`}
+                {step === "FORGOT_PASSWORD" &&
+                  "Enter your registered email address and we will send a 6-digit recovery code."}
+                {step === "RESET_PASSWORD" &&
+                  `Enter the 6-digit code sent to ${email.trim().toLowerCase()} and choose a new password.`}
+              </Text>
+            </View>
 
-            {/* Inline Info Banner */}
-            {infoMessage ? (
-              <View style={styles.infoBanner}>
-                <Text style={styles.infoBannerText}>✓ {infoMessage}</Text>
-              </View>
-            ) : null}
-
-            {/* ==================== VIEW 1: SIGN IN ==================== */}
-            {mode === "LOGIN" && (
-              <View style={styles.formContainer}>
-                <View style={styles.headlineBox}>
-                  <Text style={styles.formTitle}>Welcome Back</Text>
-                  <Text style={styles.formSubtitle}>
-                    Sign in to access your saved delivery estate, past orders, and instant checkout.
-                  </Text>
-                </View>
-
-                {/* Google One-Tap Button */}
+            {/* Segmented Mode Switcher (Only on LOGIN / REGISTER) */}
+            {(step === "LOGIN" || step === "REGISTER") && (
+              <View style={styles.segmentedControl}>
                 <TouchableOpacity
-                  style={[styles.googleBtn, SHADOWS.card]}
+                  style={[
+                    styles.segmentBtn,
+                    step === "LOGIN" && styles.segmentBtnActive,
+                  ]}
                   onPress={() => {
-                    setErrorMessage("")
-                    setShowGooglePrompt(true)
+                    setStep("LOGIN");
+                    resetMessages();
                   }}
-                  activeOpacity={0.88}
-                >
-                  <View style={styles.googleIconBadge}>
-                    <Text style={styles.googleIconText}>G</Text>
-                  </View>
-                  <Text style={styles.googleBtnText}>Continue with Google</Text>
-                  <Text style={styles.googleBtnArrow}>❯</Text>
-                </TouchableOpacity>
-
-                {/* Luxury Divider */}
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerLabel}>OR SIGN IN WITH CREDENTIALS</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                {/* Email / Phone Field */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "loginId" && styles.fieldCardFocused,
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>📧</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>EMAIL OR PHONE NUMBER</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="e.g. name@gmail.com or 08012345678"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={loginPhoneOrEmail}
-                      onFocus={() => setFocusedField("loginId")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={(t) => {
-                        setLoginPhoneOrEmail(t)
-                        if (errorMessage) setErrorMessage("")
-                      }}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                </View>
-
-                {/* Password Field */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "loginPass" && styles.fieldCardFocused,
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>🔒</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>PASSWORD</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="Enter your password"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={loginPassword}
-                      onFocus={() => setFocusedField("loginPass")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={setLoginPassword}
-                      secureTextEntry={!showPassword}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeBtn}
-                  >
-                    <Text style={styles.eyeBtnText}>{showPassword ? "HIDE" : "SHOW"}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Primary CTA */}
-                <TouchableOpacity
-                  style={[styles.primaryBtn, SHADOWS.goldGlow, isLoading && styles.btnDisabled]}
-                  onPress={handleLogin}
-                  disabled={isLoading}
-                  activeOpacity={0.88}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color="#000" size="small" />
-                  ) : (
-                    <View style={styles.primaryBtnInner}>
-                      <Text style={styles.primaryBtnText}>Sign In to Your Account</Text>
-                      <View style={styles.primaryBtnArrowCircle}>
-                        <Text style={styles.primaryBtnArrow}>❯</Text>
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                {/* Switch to Register */}
-                <TouchableOpacity
-                  style={styles.switchCard}
-                  onPress={() => switchMode("REGISTER")}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.switchLinkText}>
-                    New to Tuta Grab & Go?{" "}
-                    <Text style={styles.linkHighlight}>Create VIP Account ❯</Text>
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Guest Checkout */}
-                <TouchableOpacity style={styles.guestBtn} onPress={onClose} activeOpacity={0.8}>
-                  <Text style={styles.guestBtnText}>Skip & Continue as Guest</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* ==================== VIEW 2: CREATE ACCOUNT ==================== */}
-            {mode === "REGISTER" && (
-              <View style={styles.formContainer}>
-                <View style={styles.headlineBox}>
-                  <Text style={styles.formTitle}>Create VIP Account</Text>
-                  <Text style={styles.formSubtitle}>
-                    Register in seconds. We will send a 6-digit verification code from{" "}
-                    <Text style={{ color: COLORS.primary, fontWeight: "700" }}>
-                      admin@tutasuites.com
-                    </Text>
-                    .
-                  </Text>
-                </View>
-
-                {/* Google One-Tap Button */}
-                <TouchableOpacity
-                  style={[styles.googleBtn, SHADOWS.card]}
-                  onPress={() => {
-                    setErrorMessage("")
-                    setShowGooglePrompt(true)
-                  }}
-                  activeOpacity={0.88}
-                >
-                  <View style={styles.googleIconBadge}>
-                    <Text style={styles.googleIconText}>G</Text>
-                  </View>
-                  <Text style={styles.googleBtnText}>Fast Sign Up with Google</Text>
-                  <Text style={styles.googleBtnArrow}>❯</Text>
-                </TouchableOpacity>
-
-                {/* Divider */}
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerLabel}>OR REGISTER WITH EMAIL OTP</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                {/* Full Name */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "regName" && styles.fieldCardFocused,
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>👤</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>FULL NAME *</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="e.g. Ayomide Balogun"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={regName}
-                      onFocus={() => setFocusedField("regName")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={(t) => {
-                        setRegName(t)
-                        if (errorMessage) setErrorMessage("")
-                      }}
-                    />
-                  </View>
-                </View>
-
-                {/* Email Address */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "regEmail" && styles.fieldCardFocused,
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>✉️</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>EMAIL ADDRESS (FOR OTP & RECEIPTS) *</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="yourname@gmail.com"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={regEmail}
-                      onFocus={() => setFocusedField("regEmail")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={(t) => {
-                        setRegEmail(t)
-                        if (errorMessage) setErrorMessage("")
-                      }}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                </View>
-
-                {/* Phone Number */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "regPhone" && styles.fieldCardFocused,
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>📞</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>PHONE / WHATSAPP NUMBER *</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="080 1234 5678"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={regPhone}
-                      onFocus={() => setFocusedField("regPhone")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={(t) => {
-                        setRegPhone(t)
-                        if (errorMessage) setErrorMessage("")
-                      }}
-                      keyboardType="phone-pad"
-                    />
-                  </View>
-                </View>
-
-                {/* Delivery Address + Quick Estate Chips */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "regAddr" && styles.fieldCardFocused,
-                    { marginBottom: 8 },
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>📍</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>DEFAULT DELIVERY ADDRESS</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="House / Flat & Estate in Mowe"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={regAddress}
-                      onFocus={() => setFocusedField("regAddr")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={setRegAddress}
-                    />
-                  </View>
-                </View>
-
-                {/* Quick Estate Selector Pills */}
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.estateChipsScroll}
-                  contentContainerStyle={styles.estateChipsContainer}
-                >
-                  {QUICK_ESTATES.map((est) => {
-                    const active = regAddress === est
-                    return (
-                      <TouchableOpacity
-                        key={est}
-                        onPress={() => setRegAddress(est)}
-                        style={[styles.estateChip, active && styles.estateChipActive]}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.estateChipText, active && styles.estateChipTextActive]}>
-                          📍 {est}
-                        </Text>
-                      </TouchableOpacity>
-                    )
-                  })}
-                </ScrollView>
-
-                {/* Password */}
-                <View
-                  style={[
-                    styles.fieldCard,
-                    focusedField === "regPass" && styles.fieldCardFocused,
-                  ]}
-                >
-                  <View style={styles.fieldIconBox}>
-                    <Text style={styles.fieldEmoji}>🔒</Text>
-                  </View>
-                  <View style={styles.fieldInputWrap}>
-                    <Text style={styles.fieldMicroLabel}>CREATE PASSWORD</Text>
-                    <TextInput
-                      style={styles.fieldInput}
-                      placeholder="Minimum 6 characters"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={regPassword}
-                      onFocus={() => setFocusedField("regPass")}
-                      onBlur={() => setFocusedField(null)}
-                      onChangeText={setRegPassword}
-                      secureTextEntry={!showPassword}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeBtn}
-                  >
-                    <Text style={styles.eyeBtnText}>{showPassword ? "HIDE" : "SHOW"}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Send OTP Button */}
-                <TouchableOpacity
-                  style={[styles.primaryBtn, SHADOWS.goldGlow, isLoading && styles.btnDisabled]}
-                  onPress={handleRequestOtp}
-                  disabled={isLoading}
-                  activeOpacity={0.88}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color="#000" size="small" />
-                  ) : (
-                    <View style={styles.primaryBtnInner}>
-                      <Text style={styles.primaryBtnText}>Send 6-Digit Verification Code</Text>
-                      <View style={styles.primaryBtnArrowCircle}>
-                        <Text style={styles.primaryBtnArrow}>❯</Text>
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.switchCard}
-                  onPress={() => switchMode("LOGIN")}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.switchLinkText}>
-                    Already have a Tuta account?{" "}
-                    <Text style={styles.linkHighlight}>Sign In ❯</Text>
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* ==================== VIEW 3: 6-BOX OTP VERIFICATION ==================== */}
-            {mode === "OTP_VERIFY" && (
-              <View style={styles.formContainer}>
-                <View style={styles.otpHeroCard}>
-                  <View style={[styles.otpShieldOrb, SHADOWS.goldGlow]}>
-                    <Text style={styles.otpShieldEmoji}>🔐</Text>
-                  </View>
-                  <View style={styles.senderBadge}>
-                    <Text style={styles.senderBadgeText}>
-                      ✉️ OFFICIAL SENDER: ADMIN@TUTASUITES.COM
-                    </Text>
-                  </View>
-                  <Text style={styles.otpTitle}>Verify Your Account</Text>
-                  <Text style={styles.otpSubtitle}>
-                    Enter the 6-digit security code dispatched to{"\n"}
-                    <Text style={styles.otpTargetHighlight}>{otpTarget || regEmail || regPhone}</Text>
-                  </Text>
-                </View>
-
-                {/* 6 Individual Luxury Digit Boxes */}
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={() => otpInputRef.current?.focus()}
-                  style={styles.otpBoxesRow}
-                >
-                  {otpDigits.map((digit, idx) => {
-                    const isCurrent = idx === otpCode.length
-                    const isFilled = Boolean(digit)
-                    return (
-                      <View
-                        key={idx}
-                        style={[
-                          styles.otpDigitBox,
-                          isFilled && styles.otpDigitBoxFilled,
-                          isCurrent && styles.otpDigitBoxCurrent,
-                        ]}
-                      >
-                        <Text style={styles.otpDigitText}>{digit || "•"}</Text>
-                      </View>
-                    )
-                  })}
-                </TouchableOpacity>
-
-                {/* Hidden TextInput driving the 6 boxes */}
-                <TextInput
-                  ref={otpInputRef}
-                  style={styles.hiddenOtpInput}
-                  value={otpCode}
-                  onChangeText={(val) => {
-                    const cleaned = val.replace(/[^0-9]/g, "").slice(0, 6)
-                    setOtpCode(cleaned)
-                    if (errorMessage) setErrorMessage("")
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  autoFocus
-                />
-
-                {/* Instant Auto-Fill Helper Card */}
-                {activeTestOtp ? (
-                  <TouchableOpacity
-                    style={styles.instantCodeCard}
-                    onPress={() => setOtpCode(activeTestOtp)}
-                    activeOpacity={0.85}
-                  >
-                    <View>
-                      <Text style={styles.instantCodeLabel}>⚡ INSTANT VERIFICATION CODE</Text>
-                      <Text style={styles.instantCodeSub}>
-                        Auto-synced for immediate mobile verification
-                      </Text>
-                    </View>
-                    <View style={styles.instantCodeBadge}>
-                      <Text style={styles.instantCodeValue}>{activeTestOtp}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ) : null}
-
-                {/* Verify Button */}
-                <TouchableOpacity
-                  style={[styles.primaryBtn, SHADOWS.goldGlow, isLoading && styles.btnDisabled]}
-                  onPress={handleVerifyOtp}
-                  disabled={isLoading}
-                  activeOpacity={0.88}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color="#000" size="small" />
-                  ) : (
-                    <View style={styles.primaryBtnInner}>
-                      <Text style={styles.primaryBtnText}>Verify & Complete Sign Up</Text>
-                      <View style={styles.primaryBtnArrowCircle}>
-                        <Text style={styles.primaryBtnArrow}>✓</Text>
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                {/* Resend & Edit Footer */}
-                <View style={styles.otpFooterRow}>
-                  <TouchableOpacity
-                    onPress={handleRequestOtp}
-                    disabled={isLoading || resendTimer > 0}
-                    style={styles.resendPill}
-                  >
-                    <Text
-                      style={[
-                        styles.resendPillText,
-                        resendTimer > 0 && { color: COLORS.textMuted },
-                      ]}
-                    >
-                      {resendTimer > 0
-                        ? `⏱ Resend Code in 00:${resendTimer < 10 ? `0${resendTimer}` : resendTimer}`
-                        : "↻ Resend Verification Email"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => switchMode("REGISTER")}
-                    style={styles.editDetailsBtn}
-                  >
-                    <Text style={styles.editDetailsText}>← Change Email</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </ScrollView>
-
-          {/* Google Account Selector Sheet */}
-          {showGooglePrompt && (
-            <View style={styles.googleModalBackdrop}>
-              <View style={[styles.googleModalCard, SHADOWS.floating]}>
-                <View style={styles.googleModalHeader}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                    <View style={styles.googleIconBadge}>
-                      <Text style={styles.googleIconText}>G</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.googleModalTitle}>Google One-Tap Sign In</Text>
-                      <Text style={styles.googleModalEyebrow}>VERIFIED GMAIL ACCESS</Text>
-                    </View>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setShowGooglePrompt(false)}
-                    style={styles.closeBtn}
-                  >
-                    <Text style={styles.closeText}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={styles.googleModalSub}>
-                  Choose your Google account or type your Gmail address below for instant access:
-                </Text>
-
-                {errorMessage ? (
-                  <View style={styles.errorBanner}>
-                    <Text style={styles.errorBannerText}>⚠️ {errorMessage}</Text>
-                  </View>
-                ) : null}
-
-                {/* Quick 1-Tap Account Option */}
-                <TouchableOpacity
-                  style={styles.googleAccountOption}
-                  onPress={() => handleGoogleSignIn("ayomide.ayoola91@gmail.com", "Ayomide Ayoola")}
-                  disabled={isLoading}
                   activeOpacity={0.85}
                 >
-                  <View style={styles.googleAvatarCircle}>
-                    <Text style={styles.googleAvatarLetter}>A</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.googleAccName}>Ayomide Ayoola</Text>
-                    <Text style={styles.googleAccEmail}>ayomide.ayoola91@gmail.com</Text>
-                  </View>
-                  <View style={styles.googleVerifiedPill}>
-                    <Text style={styles.googleVerifiedText}>1-TAP ❯</Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Custom Gmail Input */}
-                <View style={{ marginTop: 16 }}>
-                  <View
+                  <Text
                     style={[
-                      styles.fieldCard,
-                      focusedField === "googleCustom" && styles.fieldCardFocused,
+                      styles.segmentText,
+                      step === "LOGIN" && styles.segmentTextActive,
                     ]}
                   >
-                    <View style={styles.fieldIconBox}>
-                      <Text style={styles.fieldEmoji}>✉️</Text>
+                    Sign In
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    step === "REGISTER" && styles.segmentBtnActive,
+                  ]}
+                  onPress={() => {
+                    setStep("REGISTER");
+                    resetMessages();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      step === "REGISTER" && styles.segmentTextActive,
+                    ]}
+                  >
+                    Create Account
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Status & Error Banners */}
+            {errorMsg && (
+              <View style={styles.errorBanner}>
+                <View style={styles.errorIconBadge}>
+                  <Text style={styles.errorIconText}>!</Text>
+                </View>
+                <Text style={styles.errorBannerText}>{errorMsg}</Text>
+              </View>
+            )}
+
+            {statusMsg && !errorMsg && (
+              <View style={styles.infoBanner}>
+                <Text style={styles.infoBannerIcon}>✨</Text>
+                <Text style={styles.infoBannerText}>{statusMsg}</Text>
+              </View>
+            )}
+
+            {/* ==================== OTP VERIFICATION VIEW ==================== */}
+            {step === "OTP_VERIFY" && (
+              <View style={styles.otpContainer}>
+                <View style={styles.otpEmailPill}>
+                  <Text style={styles.otpEmailPillText}>
+                    ✉️ {email.trim().toLowerCase()}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setStep("REGISTER");
+                      resetMessages();
+                    }}
+                  >
+                    <Text style={styles.otpChangeEmailLink}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.inputLabel}>
+                  6-DIGIT VERIFICATION CODE
+                </Text>
+                {renderSixBoxOtpInputs()}
+
+                <TouchableOpacity
+                  style={[
+                    styles.goldPrimaryBtn,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={handleVerifyOtp}
+                  disabled={loading}
+                  activeOpacity={0.9}
+                >
+                  {loading ? (
+                    <View style={styles.loadingRow}>
+                      <ActivityIndicator color="#090A0F" size="small" />
+                      <Text style={styles.goldPrimaryBtnText}>
+                        Verifying & Creating Account...
+                      </Text>
                     </View>
-                    <View style={styles.fieldInputWrap}>
-                      <Text style={styles.fieldMicroLabel}>OR ENTER ANY GMAIL ADDRESS</Text>
+                  ) : (
+                    <Text style={styles.goldPrimaryBtnText}>
+                      Verify & Complete Sign Up →
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.resendRow}>
+                  {countdown > 0 ? (
+                    <Text style={styles.resendTimerText}>
+                      Resend code available in{" "}
+                      <Text style={styles.resendTimerHighlight}>
+                        {countdown}s
+                      </Text>
+                    </Text>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={handlePrimarySubmit}
+                      disabled={loading}
+                    >
+                      <Text style={styles.resendActionText}>
+                        Didn&apos;t receive the email? Resend Code
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* ==================== FORGOT PASSWORD VIEW ==================== */}
+            {step === "FORGOT_PASSWORD" && (
+              <View style={styles.formSection}>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>REGISTERED EMAIL ADDRESS</Text>
+                  <View
+                    style={[
+                      styles.inputShell,
+                      focusedField === "forgot_email" &&
+                        styles.inputShellFocused,
+                    ]}
+                  >
+                    <Text style={styles.fieldIcon}>✉️</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="you@example.com"
+                      placeholderTextColor={COLORS.textMuted}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      value={email}
+                      onFocus={() => setFocusedField("forgot_email")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        resetMessages();
+                      }}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.goldPrimaryBtn,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={handleSendForgotPasswordOtp}
+                  disabled={loading}
+                  activeOpacity={0.9}
+                >
+                  {loading ? (
+                    <View style={styles.loadingRow}>
+                      <ActivityIndicator color="#090A0F" size="small" />
+                      <Text style={styles.goldPrimaryBtnText}>
+                        Sending Recovery Code...
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.goldPrimaryBtnText}>
+                      Send 6-Digit Recovery Code →
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.switchFooter}
+                  onPress={() => {
+                    setStep("LOGIN");
+                    resetMessages();
+                  }}
+                >
+                  <Text style={styles.switchFooterHighlight}>
+                    ← Back to Sign In
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ==================== RESET PASSWORD VIEW ==================== */}
+            {step === "RESET_PASSWORD" && (
+              <View style={styles.formSection}>
+                <View style={styles.otpEmailPill}>
+                  <Text style={styles.otpEmailPillText}>
+                    ✉️ {email.trim().toLowerCase()}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setStep("FORGOT_PASSWORD");
+                      resetMessages();
+                    }}
+                  >
+                    <Text style={styles.otpChangeEmailLink}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.inputLabel}>6-DIGIT RECOVERY CODE</Text>
+                {renderSixBoxOtpInputs()}
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>NEW PASSWORD</Text>
+                  <View
+                    style={[
+                      styles.inputShell,
+                      focusedField === "new_password" &&
+                        styles.inputShellFocused,
+                    ]}
+                  >
+                    <Text style={styles.fieldIcon}>🔒</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Minimum 8 chars (letters & numbers)"
+                      placeholderTextColor={COLORS.textMuted}
+                      secureTextEntry={!showPassword}
+                      value={newPassword}
+                      onFocus={() => setFocusedField("new_password")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setNewPassword(t);
+                        resetMessages();
+                      }}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeToggle}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Text style={styles.eyeToggleText}>
+                        {showPassword ? "HIDE" : "SHOW"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>CONFIRM NEW PASSWORD</Text>
+                  <View
+                    style={[
+                      styles.inputShell,
+                      focusedField === "confirm_new_password" &&
+                        styles.inputShellFocused,
+                    ]}
+                  >
+                    <Text style={styles.fieldIcon}>🛡️</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Re-enter your new password"
+                      placeholderTextColor={COLORS.textMuted}
+                      secureTextEntry={!showPassword}
+                      value={confirmNewPassword}
+                      onFocus={() => setFocusedField("confirm_new_password")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setConfirmNewPassword(t);
+                        resetMessages();
+                      }}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.goldPrimaryBtn,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={handleResetPasswordSubmit}
+                  disabled={loading}
+                  activeOpacity={0.9}
+                >
+                  {loading ? (
+                    <View style={styles.loadingRow}>
+                      <ActivityIndicator color="#090A0F" size="small" />
+                      <Text style={styles.goldPrimaryBtnText}>
+                        Updating Password...
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.goldPrimaryBtnText}>
+                      Reset Password & Sign In →
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.resendRow}>
+                  {countdown > 0 ? (
+                    <Text style={styles.resendTimerText}>
+                      Resend recovery code in{" "}
+                      <Text style={styles.resendTimerHighlight}>
+                        {countdown}s
+                      </Text>
+                    </Text>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={handleSendForgotPasswordOtp}
+                      disabled={loading}
+                    >
+                      <Text style={styles.resendActionText}>
+                        Resend Recovery Code
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* ==================== SIGN IN / REGISTER FORM ==================== */}
+            {(step === "LOGIN" || step === "REGISTER") && (
+              <View style={styles.formSection}>
+                {/* Google Quick Sign-In */}
+                <TouchableOpacity
+                  style={styles.googleButton}
+                  onPress={() => {
+                    resetMessages();
+                    setGoogleModalOpen(true);
+                  }}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.googleLogoCircle}>
+                    <Text style={styles.googleLogoG}>G</Text>
+                  </View>
+                  <Text style={styles.googleButtonText}>
+                    Continue with Google
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={styles.dividerContainer}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerLabel}>
+                    OR CONTINUE WITH EMAIL
+                  </Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                {step === "REGISTER" && (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.inputLabel}>FULL NAME</Text>
+                    <View
+                      style={[
+                        styles.inputShell,
+                        focusedField === "name" && styles.inputShellFocused,
+                      ]}
+                    >
+                      <Text style={styles.fieldIcon}>👤</Text>
                       <TextInput
-                        style={styles.fieldInput}
-                        placeholder="yourname@gmail.com"
+                        style={styles.textInput}
+                        placeholder="e.g. Adewale Johnson"
                         placeholderTextColor={COLORS.textMuted}
-                        value={googleEmailInput}
-                        onFocus={() => setFocusedField("googleCustom")}
+                        value={name}
+                        onFocus={() => setFocusedField("name")}
                         onBlur={() => setFocusedField(null)}
                         onChangeText={(t) => {
-                          setGoogleEmailInput(t)
-                          if (errorMessage) setErrorMessage("")
+                          setName(t);
+                          resetMessages();
                         }}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
                       />
                     </View>
                   </View>
+                )}
 
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, isLoading && styles.btnDisabled]}
-                    onPress={() => handleGoogleSignIn(googleEmailInput)}
-                    disabled={isLoading}
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.inputLabel}>
+                    {step === "LOGIN"
+                      ? "EMAIL OR PHONE NUMBER"
+                      : "EMAIL ADDRESS (FOR OTP CODE)"}
+                  </Text>
+                  <View
+                    style={[
+                      styles.inputShell,
+                      focusedField === "email" && styles.inputShellFocused,
+                    ]}
                   >
-                    {isLoading ? (
-                      <ActivityIndicator color="#000" size="small" />
-                    ) : (
-                      <View style={styles.primaryBtnInner}>
-                        <Text style={styles.primaryBtnText}>Continue with Gmail</Text>
-                        <View style={styles.primaryBtnArrowCircle}>
-                          <Text style={styles.primaryBtnArrow}>❯</Text>
-                        </View>
-                      </View>
-                    )}
-                  </TouchableOpacity>
+                    <Text style={styles.fieldIcon}>✉️</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder={
+                        step === "LOGIN"
+                          ? "you@example.com or 0803..."
+                          : "you@example.com"
+                      }
+                      placeholderTextColor={COLORS.textMuted}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      value={email}
+                      onFocus={() => setFocusedField("email")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        resetMessages();
+                      }}
+                    />
+                  </View>
                 </View>
+
+                {step === "REGISTER" && (
+                  <>
+                    <View style={styles.fieldGroup}>
+                      <Text style={styles.inputLabel}>
+                        PHONE / WHATSAPP NUMBER
+                      </Text>
+                      <View
+                        style={[
+                          styles.inputShell,
+                          focusedField === "phone" && styles.inputShellFocused,
+                        ]}
+                      >
+                        <Text style={styles.fieldIcon}>📞</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="e.g. 0803 000 0000"
+                          placeholderTextColor={COLORS.textMuted}
+                          keyboardType="phone-pad"
+                          value={phone}
+                          onFocus={() => setFocusedField("phone")}
+                          onBlur={() => setFocusedField(null)}
+                          onChangeText={(t) => {
+                            setPhone(t);
+                            resetMessages();
+                          }}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.fieldGroup}>
+                      <Text style={styles.inputLabel}>
+                        DEFAULT DELIVERY ADDRESS
+                      </Text>
+                      <View
+                        style={[
+                          styles.inputShell,
+                          focusedField === "address" &&
+                            styles.inputShellFocused,
+                        ]}
+                      >
+                        <Text style={styles.fieldIcon}>📍</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="House No, Street, Estate in Mowe"
+                          placeholderTextColor={COLORS.textMuted}
+                          value={address}
+                          onFocus={() => setFocusedField("address")}
+                          onBlur={() => setFocusedField(null)}
+                          onChangeText={(t) => {
+                            setAddress(t);
+                            resetMessages();
+                          }}
+                        />
+                      </View>
+                    </View>
+                  </>
+                )}
+
+                <View style={styles.fieldGroup}>
+                  <View style={styles.passwordHeaderRow}>
+                    <Text style={styles.inputLabel}>PASSWORD</Text>
+                    {step === "LOGIN" && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          resetMessages();
+                          setStep("FORGOT_PASSWORD");
+                        }}
+                      >
+                        <Text style={styles.forgotPasswordLink}>
+                          Forgot Password?
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <View
+                    style={[
+                      styles.inputShell,
+                      focusedField === "password" && styles.inputShellFocused,
+                    ]}
+                  >
+                    <Text style={styles.fieldIcon}>🔒</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder={
+                        step === "REGISTER"
+                          ? "Minimum 8 chars (letters & numbers)"
+                          : "Enter your password"
+                      }
+                      placeholderTextColor={COLORS.textMuted}
+                      secureTextEntry={!showPassword}
+                      value={password}
+                      onFocus={() => setFocusedField("password")}
+                      onBlur={() => setFocusedField(null)}
+                      onChangeText={(t) => {
+                        setPassword(t);
+                        resetMessages();
+                      }}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeToggle}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Text style={styles.eyeToggleText}>
+                        {showPassword ? "HIDE" : "SHOW"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {step === "REGISTER" && (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.inputLabel}>CONFIRM PASSWORD</Text>
+                    <View
+                      style={[
+                        styles.inputShell,
+                        focusedField === "confirmPassword" &&
+                          styles.inputShellFocused,
+                      ]}
+                    >
+                      <Text style={styles.fieldIcon}>🛡️</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Re-enter your password"
+                        placeholderTextColor={COLORS.textMuted}
+                        secureTextEntry={!showPassword}
+                        value={confirmPassword}
+                        onFocus={() => setFocusedField("confirmPassword")}
+                        onBlur={() => setFocusedField(null)}
+                        onChangeText={(t) => {
+                          setConfirmPassword(t);
+                          resetMessages();
+                        }}
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* Primary Luxury Gold Submit CTA */}
+                <TouchableOpacity
+                  style={[
+                    styles.goldPrimaryBtn,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={handlePrimarySubmit}
+                  disabled={loading}
+                  activeOpacity={0.9}
+                >
+                  {loading ? (
+                    <View style={styles.loadingRow}>
+                      <ActivityIndicator color="#090A0F" size="small" />
+                      <Text style={styles.goldPrimaryBtnText}>
+                        {step === "LOGIN"
+                          ? "Signing In..."
+                          : "Sending Verification Code..."}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.goldPrimaryBtnText}>
+                      {step === "LOGIN"
+                        ? "Sign In to Tuta Grab & Go →"
+                        : "Send 6-Digit Verification Code →"}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* Switch Mode Footer */}
+                <TouchableOpacity
+                  style={styles.switchFooter}
+                  onPress={() => {
+                    setStep(step === "LOGIN" ? "REGISTER" : "LOGIN");
+                    resetMessages();
+                  }}
+                >
+                  <Text style={styles.switchFooterMuted}>
+                    {step === "LOGIN"
+                      ? "New to Tuta Grab & Go? "
+                      : "Already have a Tuta account? "}
+                    <Text style={styles.switchFooterHighlight}>
+                      {step === "LOGIN" ? "Create Account" : "Sign In"}
+                    </Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+
+        {/* Google Sign-In Verification Sub-Modal */}
+        <Modal visible={googleModalOpen} transparent animationType="fade">
+          <View style={styles.googleOverlay}>
+            <View style={styles.googleDialog}>
+              <View style={styles.googleDialogHeader}>
+                <View style={styles.googleLogoCircleLarge}>
+                  <Text style={styles.googleLogoGLarge}>G</Text>
+                </View>
+                <Text style={styles.googleDialogTitle}>
+                  Sign in with Google
+                </Text>
+                <Text style={styles.googleDialogSub}>
+                  Tuta Grab & Go verifies your signed Google identity token
+                  before linking or creating your account.
+                </Text>
+              </View>
+
+              <Text style={styles.inputLabel}>GOOGLE ID TOKEN</Text>
+              <View style={[styles.inputShell, { marginBottom: 14 }]}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Paste verified Google ID token (JWT)"
+                  placeholderTextColor={COLORS.textMuted}
+                  autoCapitalize="none"
+                  value={googleIdToken}
+                  onChangeText={setGoogleIdToken}
+                />
+              </View>
+
+              <Text style={styles.inputLabel}>
+                PHONE NUMBER (OPTIONAL FOR DELIVERY)
+              </Text>
+              <View style={[styles.inputShell, { marginBottom: 14 }]}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="0803 000 0000"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="phone-pad"
+                  value={phone}
+                  onChangeText={setPhone}
+                />
+              </View>
+
+              <View style={styles.googleDialogActions}>
+                <TouchableOpacity
+                  style={styles.googleCancelBtn}
+                  onPress={() => setGoogleModalOpen(false)}
+                >
+                  <Text style={styles.googleCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.googleConfirmBtn}
+                  onPress={handleCompleteGoogleSignIn}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.googleConfirmText}>Verify & Continue</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
-          )}
-        </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </Modal>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(4, 5, 8, 0.88)",
+    backgroundColor: "rgba(3, 4, 8, 0.88)",
     justifyContent: "flex-end",
   },
-  modalCard: {
-    backgroundColor: COLORS.backgroundSecondary,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    height: "92%",
+  sheet: {
+    backgroundColor: "#0B0D14",
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    maxHeight: "94%",
     borderTopWidth: 1.5,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: COLORS.cardBorderGold,
+    borderColor: "rgba(230, 198, 101, 0.35)",
     overflow: "hidden",
+    ...SHADOWS.card,
   },
-  dragHandleContainer: {
+  topGlowBar: {
+    height: 3,
+    width: "45%",
+    alignSelf: "center",
+    backgroundColor: COLORS.primary,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+  },
+  sheetTopBar: {
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    paddingTop: 10,
-    paddingBottom: 4,
+    paddingTop: 14,
+    paddingHorizontal: 22,
+    position: "relative",
   },
   dragHandle: {
     width: 44,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "rgba(230, 198, 101, 0.35)",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  crownOrb: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: COLORS.surfaceElevated,
-    borderWidth: 1.5,
-    borderColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  crownEmoji: {
-    fontSize: 20,
-  },
-  brandTitle: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: COLORS.white,
-    letterSpacing: 1,
-  },
-  brandSubRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 2,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.accentGreen,
-  },
-  brandSubText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: COLORS.primary,
-    letterSpacing: 0.6,
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
   closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: COLORS.surfaceLight,
+    position: "absolute",
+    right: 20,
+    top: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    borderColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
-  closeText: {
+  closeIcon: {
     color: COLORS.textSecondary,
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 15,
+    fontWeight: "700",
   },
-  perksStrip: {
-    flexDirection: "row",
+  scrollContent: {
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 38,
+  },
+  brandSection: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  crestOuter: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: "rgba(230, 198, 101, 0.12)",
+    borderWidth: 1.5,
+    borderColor: "rgba(230, 198, 101, 0.45)",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(230, 198, 101, 0.06)",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorderSubtle,
-    gap: 10,
+    marginBottom: 12,
+    ...SHADOWS.goldGlow,
   },
-  perkItem: {
-    flexDirection: "row",
+  crestInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#141824",
     alignItems: "center",
-    gap: 4,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(230, 198, 101, 0.25)",
   },
-  perkEmoji: {
-    fontSize: 11,
+  crestMonogram: {
+    color: COLORS.primary,
+    fontSize: 25,
+    fontWeight: "900",
+    letterSpacing: 1,
   },
-  perkText: {
+  brandBadge: {
+    color: COLORS.primary,
     fontSize: 10,
-    fontWeight: "700",
-    color: COLORS.primaryLight,
+    fontWeight: "900",
+    letterSpacing: 2.4,
+    marginBottom: 6,
   },
-  perkDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: COLORS.primaryDark,
+  heroTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 26,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: -0.3,
   },
-  tabContainer: {
+  heroSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 6,
+    paddingHorizontal: 8,
+  },
+  segmentedControl: {
     flexDirection: "row",
-    backgroundColor: "#06070A",
-    marginHorizontal: 20,
-    marginTop: 14,
+    backgroundColor: "#121520",
     borderRadius: 16,
     padding: 4,
+    marginBottom: 18,
     borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    borderColor: "rgba(255,255,255,0.07)",
   },
-  tabBtn: {
+  segmentBtn: {
     flex: 1,
-    paddingVertical: 11,
-    alignItems: "center",
+    paddingVertical: 12,
     borderRadius: 12,
+    alignItems: "center",
   },
-  tabBtnActive: {
+  segmentBtnActive: {
     backgroundColor: COLORS.primary,
+    ...SHADOWS.goldGlow,
   },
-  tabText: {
+  segmentText: {
+    color: COLORS.textSecondary,
     fontSize: 13,
     fontWeight: "800",
-    color: COLORS.textMuted,
   },
-  tabTextActive: {
-    color: "#000000",
+  segmentTextActive: {
+    color: "#090A0F",
     fontWeight: "900",
-  },
-  body: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
   },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 71, 87, 0.14)",
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
     borderWidth: 1,
-    borderColor: COLORS.danger,
+    borderColor: "rgba(239, 68, 68, 0.4)",
     borderRadius: 14,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    marginBottom: 14,
+    padding: 13,
+    marginBottom: 16,
     gap: 10,
   },
-  errorIconCircle: {
+  errorIconBadge: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: COLORS.danger,
+    backgroundColor: "#EF4444",
     alignItems: "center",
     justifyContent: "center",
   },
   errorIconText: {
     color: "#FFF",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "900",
   },
   errorBannerText: {
-    flex: 1,
-    color: "#FF8A9B",
-    fontSize: 12,
+    color: "#FCA5A5",
+    fontSize: 12.5,
     fontWeight: "700",
+    flex: 1,
+    lineHeight: 17,
   },
   infoBanner: {
-    backgroundColor: "rgba(0, 194, 116, 0.14)",
-    borderWidth: 1,
-    borderColor: COLORS.accentGreen,
-    borderRadius: 14,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    marginBottom: 14,
-  },
-  infoBannerText: {
-    color: COLORS.accentGreen,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  formContainer: {
-    paddingBottom: 48,
-  },
-  headlineBox: {
-    marginBottom: 16,
-  },
-  formTitle: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: COLORS.white,
-    letterSpacing: 0.3,
-    marginBottom: 4,
-  },
-  formSubtitle: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    lineHeight: 18,
-  },
-  googleBtn: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 16,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
+    backgroundColor: "rgba(230, 198, 101, 0.11)",
     borderWidth: 1,
-    borderColor: COLORS.cardBorderGoldSubtle,
+    borderColor: "rgba(230, 198, 101, 0.35)",
+    borderRadius: 14,
+    padding: 13,
     marginBottom: 16,
+    gap: 10,
+  },
+  infoBannerIcon: {
+    fontSize: 16,
+  },
+  infoBannerText: {
+    color: "#F3E3A3",
+    fontSize: 12.5,
+    fontWeight: "700",
+    flex: 1,
+    lineHeight: 17,
+  },
+  formSection: {
+    marginTop: 2,
+  },
+  googleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#161926",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 16,
+    paddingVertical: 14,
     gap: 12,
   },
-  googleIconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  googleLogoCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
-  googleIconText: {
-    color: "#EA4335",
-    fontSize: 16,
+  googleLogoG: {
+    color: "#4285F4",
     fontWeight: "900",
+    fontSize: 15,
   },
-  googleBtnText: {
-    flex: 1,
-    color: COLORS.white,
-    fontSize: 13,
+  googleButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
     fontWeight: "800",
   },
-  googleBtnArrow: {
-    color: COLORS.primary,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  dividerRow: {
+  dividerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
-    gap: 10,
+    marginVertical: 18,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: COLORS.divider,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   dividerLabel: {
-    fontSize: 9,
-    fontWeight: "900",
     color: COLORS.textMuted,
-    letterSpacing: 0.8,
+    fontSize: 10,
+    fontWeight: "800",
+    marginHorizontal: 12,
+    letterSpacing: 1.2,
   },
-  fieldCard: {
+  fieldGroup: {
+    marginBottom: 15,
+  },
+  passwordHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  forgotPasswordLink: {
+    color: COLORS.primary,
+    fontSize: 11.5,
+    fontWeight: "800",
+    marginBottom: 7,
+  },
+  inputLabel: {
+    color: "#A5ADC6",
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 1.1,
+    marginBottom: 7,
+  },
+  inputShell: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.surface,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    borderRadius: 16,
+    backgroundColor: "#131722",
+    borderRadius: 15,
+    borderWidth: 1.2,
+    borderColor: "rgba(255,255,255,0.09)",
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 12,
-    gap: 12,
+    height: 54,
   },
-  fieldCardFocused: {
+  inputShellFocused: {
     borderColor: COLORS.primary,
-    backgroundColor: COLORS.surfaceLight,
+    backgroundColor: "#171C2B",
   },
-  fieldIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: "rgba(230, 198, 101, 0.10)",
-    borderWidth: 1,
-    borderColor: COLORS.cardBorderGoldSubtle,
-    alignItems: "center",
-    justifyContent: "center",
+  fieldIcon: {
+    fontSize: 15,
+    marginRight: 10,
   },
-  fieldEmoji: {
-    fontSize: 16,
-  },
-  fieldInputWrap: {
+  textInput: {
     flex: 1,
-  },
-  fieldMicroLabel: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: COLORS.primary,
-    letterSpacing: 0.7,
-    marginBottom: 3,
-  },
-  fieldInput: {
-    color: COLORS.white,
-    fontSize: 14,
+    color: COLORS.textPrimary,
+    fontSize: 14.5,
     fontWeight: "600",
-    paddingVertical: 2,
+    height: "100%",
   },
-  eyeBtn: {
-    backgroundColor: COLORS.surfaceElevated,
+  eyeToggle: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
+    backgroundColor: "rgba(230, 198, 101, 0.12)",
   },
-  eyeBtnText: {
+  eyeToggleText: {
     color: COLORS.primary,
     fontSize: 10,
     fontWeight: "900",
+    letterSpacing: 0.8,
   },
-  estateChipsScroll: {
-    marginBottom: 14,
-  },
-  estateChipsContainer: {
-    gap: 8,
-    paddingRight: 12,
-  },
-  estateChip: {
-    backgroundColor: COLORS.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-  estateChipActive: {
-    backgroundColor: "rgba(230, 198, 101, 0.15)",
-    borderColor: COLORS.primary,
-  },
-  estateChipText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: COLORS.textSecondary,
-  },
-  estateChipTextActive: {
-    color: COLORS.primary,
-    fontWeight: "900",
-  },
-  primaryBtn: {
+  goldPrimaryBtn: {
     backgroundColor: COLORS.primary,
     borderRadius: 16,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    marginTop: 6,
-  },
-  primaryBtnInner: {
-    flexDirection: "row",
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 8,
+    ...SHADOWS.goldGlow,
+  },
+  btnDisabled: {
+    opacity: 0.65,
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
-  primaryBtnText: {
-    color: "#000000",
+  goldPrimaryBtnText: {
+    color: "#090A0F",
     fontSize: 15,
     fontWeight: "900",
     letterSpacing: 0.3,
   },
-  primaryBtnArrowCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.15)",
+  switchFooter: {
+    marginTop: 20,
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 6,
   },
-  primaryBtnArrow: {
-    color: "#000000",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  btnDisabled: {
-    opacity: 0.6,
-  },
-  switchCard: {
-    marginTop: 18,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    alignItems: "center",
-  },
-  switchLinkText: {
+  switchFooterMuted: {
     color: COLORS.textSecondary,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
   },
-  linkHighlight: {
+  switchFooterHighlight: {
     color: COLORS.primary,
     fontWeight: "900",
   },
-  guestBtn: {
-    marginTop: 14,
-    paddingVertical: 8,
-    alignItems: "center",
+  otpContainer: {
+    marginTop: 4,
   },
-  guestBtnText: {
-    color: COLORS.textMuted,
-    fontSize: 12,
+  otpEmailPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#141824",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  otpEmailPillText: {
+    color: COLORS.textPrimary,
+    fontSize: 13,
     fontWeight: "700",
   },
-  otpHeroCard: {
-    alignItems: "center",
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorderGoldSubtle,
-    marginBottom: 20,
+  otpChangeEmailLink: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: "900",
   },
-  otpShieldOrb: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(230, 198, 101, 0.14)",
+  otpBoxesContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 22,
+  },
+  otpSingleBox: {
+    flex: 1,
+    height: 60,
+    borderRadius: 14,
+    backgroundColor: "#131722",
     borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    color: COLORS.primary,
+    fontSize: 24,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  otpSingleBoxFocused: {
     borderColor: COLORS.primary,
+    backgroundColor: "#191F30",
+    ...SHADOWS.goldGlow,
+  },
+  otpSingleBoxFilled: {
+    borderColor: "rgba(230, 198, 101, 0.65)",
+  },
+  resendRow: {
+    alignItems: "center",
+    marginTop: 20,
+  },
+  resendTimerText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  resendTimerHighlight: {
+    color: COLORS.primary,
+    fontWeight: "800",
+  },
+  resendActionText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "800",
+    textDecorationLine: "underline",
+  },
+  googleOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.82)",
+    justifyContent: "center",
+    padding: 22,
+  },
+  googleDialog: {
+    backgroundColor: "#131722",
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: "rgba(230, 198, 101, 0.3)",
+  },
+  googleDialogHeader: {
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  googleLogoCircleLarge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-  },
-  otpShieldEmoji: {
-    fontSize: 26,
-  },
-  senderBadge: {
-    backgroundColor: "rgba(0, 194, 116, 0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(0, 194, 116, 0.35)",
     marginBottom: 10,
   },
-  senderBadgeText: {
-    color: COLORS.accentGreen,
-    fontSize: 9,
+  googleLogoGLarge: {
+    color: "#4285F4",
+    fontSize: 26,
     fontWeight: "900",
-    letterSpacing: 0.6,
   },
-  otpTitle: {
+  googleDialogTitle: {
+    color: COLORS.textPrimary,
     fontSize: 20,
     fontWeight: "900",
-    color: COLORS.white,
-    marginBottom: 6,
   },
-  otpSubtitle: {
-    fontSize: 12,
+  googleDialogSub: {
     color: COLORS.textSecondary,
+    fontSize: 12.5,
     textAlign: "center",
-    lineHeight: 18,
+    marginTop: 4,
   },
-  otpTargetHighlight: {
-    color: COLORS.primary,
-    fontWeight: "900",
-  },
-  otpBoxesRow: {
+  googleDialogActions: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 18,
-    gap: 8,
+    gap: 10,
+    marginTop: 8,
   },
-  otpDigitBox: {
+  googleCancelBtn: {
     flex: 1,
-    height: 58,
-    borderRadius: 14,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.07)",
     alignItems: "center",
-    justifyContent: "center",
   },
-  otpDigitBoxFilled: {
-    borderColor: COLORS.primary,
-    backgroundColor: "rgba(230, 198, 101, 0.10)",
-  },
-  otpDigitBoxCurrent: {
-    borderColor: COLORS.accentGreen,
-    borderWidth: 2,
-  },
-  otpDigitText: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: COLORS.primary,
-  },
-  hiddenOtpInput: {
-    position: "absolute",
-    opacity: 0,
-    height: 1,
-    width: 1,
-  },
-  instantCodeCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(0, 194, 116, 0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(0, 194, 116, 0.4)",
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 16,
-  },
-  instantCodeLabel: {
-    color: COLORS.accentGreen,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  instantCodeSub: {
+  googleCancelText: {
     color: COLORS.textSecondary,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  instantCodeBadge: {
-    backgroundColor: COLORS.accentGreen,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-  },
-  instantCodeValue: {
-    color: "#000000",
-    fontSize: 15,
-    fontWeight: "900",
-    letterSpacing: 2,
-  },
-  otpFooterRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 18,
-  },
-  resendPill: {
-    paddingVertical: 8,
-  },
-  resendPillText: {
-    color: COLORS.primary,
-    fontSize: 12,
     fontWeight: "800",
+    fontSize: 13,
   },
-  editDetailsBtn: {
-    paddingVertical: 8,
-  },
-  editDetailsText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  googleModalBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(4, 5, 8, 0.90)",
-    justifyContent: "center",
+  googleConfirmBtn: {
+    flex: 1.5,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#4285F4",
     alignItems: "center",
-    padding: 20,
   },
-  googleModalCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 24,
-    padding: 20,
-    width: "100%",
-    maxWidth: 380,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorderGold,
-  },
-  googleModalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  googleModalTitle: {
-    fontSize: 16,
+  googleConfirmText: {
+    color: "#FFFFFF",
     fontWeight: "900",
-    color: COLORS.white,
+    fontSize: 13,
   },
-  googleModalEyebrow: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: COLORS.primary,
-    letterSpacing: 0.6,
-  },
-  googleModalSub: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    lineHeight: 17,
-    marginBottom: 14,
-  },
-  googleAccountOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.surfaceElevated,
-    padding: 14,
-    borderRadius: 16,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorderGold,
-  },
-  googleAvatarCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  googleAvatarLetter: {
-    color: "#000000",
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  googleAccName: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: COLORS.white,
-  },
-  googleAccEmail: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    marginTop: 1,
-  },
-  googleVerifiedPill: {
-    backgroundColor: "rgba(230, 198, 101, 0.15)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  googleVerifiedText: {
-    fontSize: 10,
-    color: COLORS.primary,
-    fontWeight: "900",
-  },
-})
+});
+
+export default AuthModal;
+

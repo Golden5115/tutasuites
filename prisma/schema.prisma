@@ -277,6 +277,8 @@ model GrabAndGoItem {
 model GrabAndGoOrder {
   id            String               @id @default(cuid())
   orderNumber   String               @unique
+  customerId    String?
+  customer      MobileCustomer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   customerName  String?
   orderType     String               @default("TAKEAWAY")
   paymentMethod String               @default("CASH")
@@ -287,6 +289,8 @@ model GrabAndGoOrder {
   items         GrabAndGoOrderItem[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
+
+  @@index([customerId])
 }
 
 model GrabAndGoOrderItem {
@@ -301,4 +305,72 @@ model GrabAndGoOrderItem {
   unitPrice  Float
   totalPrice Float
   createdAt  DateTime       @default(now())
+}
+
+model MobileCustomer {
+  id                  String                  @id @default(cuid())
+  name                String
+  phone               String                  @unique
+  email               String?                 @unique
+  address             String?
+  passwordHash        String?
+  emailVerifiedAt     DateTime?
+  googleSub           String?                 @unique
+  failedLoginAttempts Int                     @default(0)
+  lockedUntil         DateTime?
+  sessions            MobileCustomerSession[]
+  orders              GrabAndGoOrder[]
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([email])
+  @@index([phone])
+  @@index([googleSub])
+}
+
+model MobileCustomerSession {
+  id                String         @id @default(cuid())
+  customerId        String
+  customer          MobileCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  refreshTokenHash  String         @unique
+  previousTokenHash String?        @unique
+  familyId          String
+  deviceInfo        String?
+  ipAddress         String?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  revokedReason     String?
+  lastUsedAt        DateTime       @default(now())
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([customerId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model MobileOtpRecord {
+  id            String    @id @default(cuid())
+  identifier    String
+  purpose       String    // REGISTER | PASSWORD_RESET
+  otpHash       String
+  payloadJson   String?
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(5)
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  invalidatedAt DateTime?
+  ipAddress     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([identifier, purpose])
+  @@index([expiresAt])
+}
+
+model MobileAuthRateLimit {
+  key          String    @id
+  count        Int       @default(1)
+  windowStart  DateTime  @default(now())
+  blockedUntil DateTime?
+  updatedAt    DateTime  @updatedAt
 }
