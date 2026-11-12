@@ -226,11 +226,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     const fallbackCode = Math.floor(100000 + Math.random() * 900000).toString()
 
     try {
-      const result = await postJsonWithTimeout(ENDPOINTS.sendOtp, {
-        email: regEmail.trim() || undefined,
-        phone: regPhone.trim() || undefined,
-        name: regName.trim(),
-      })
+      const result = await postJsonWithTimeout(
+        ENDPOINTS.sendOtp,
+        {
+          email: regEmail.trim() || undefined,
+          phone: regPhone.trim() || undefined,
+          name: regName.trim(),
+        },
+        6000
+      )
 
       const generatedOtp = result.data?.testOtp || fallbackCode
       let sentViaEmail = Boolean(result.data?.emailSent)
