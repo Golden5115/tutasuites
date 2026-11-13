@@ -58,7 +58,9 @@ export const Header: React.FC<HeaderProps> = ({
             style={[styles.accountBtn, currentUser && styles.accountBtnLoggedIn]}
           >
             <Text style={[styles.accountBtnText, currentUser && styles.accountBtnTextLoggedIn]}>
-              {currentUser ? `👤 ${currentUser.name.split(" ")[0]}` : "👤 Sign In"}
+              {currentUser
+                ? `👤 ${(currentUser.name || currentUser.email || "Member").trim().split(/\s+/)[0] || "Member"}`
+                : "👤 Sign In"}
             </Text>
           </TouchableOpacity>
 

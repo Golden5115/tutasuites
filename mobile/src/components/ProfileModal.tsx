@@ -6,6 +6,7 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
+  Platform,
 } from "react-native"
 import { COLORS } from "../constants/theme"
 import { UserProfile } from "./AuthModal"
@@ -16,6 +17,7 @@ interface ProfileModalProps {
   user: UserProfile | null
   onLogout: () => void
   onReorder?: (order: any) => void
+  onTrackOrder?: (order: any) => void
   pastOrders?: any[]
 }
 
@@ -25,6 +27,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   user,
   onLogout,
   onReorder,
+  onTrackOrder,
   pastOrders = [],
 }) => {
   if (!user) return null
@@ -46,12 +49,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <View style={styles.userCard}>
               <View style={styles.avatarCircle}>
                 <Text style={styles.avatarText}>
-                  {user.name.slice(0, 2).toUpperCase() || "TU"}
+                  {((user.name || user.email || "TU").trim().slice(0, 2) || "TU").toUpperCase()}
                 </Text>
               </View>
               <View style={styles.userInfo}>
-                <Text style={styles.userName}>{user.name}</Text>
-                <Text style={styles.userPhone}>📱 {user.phone}</Text>
+                <Text style={styles.userName}>{user.name || "Tuta Customer"}</Text>
+                {user.phone ? <Text style={styles.userPhone}>📱 {user.phone}</Text> : null}
                 {user.email ? <Text style={styles.userEmail}>✉️ {user.email}</Text> : null}
               </View>
             </View>
@@ -85,33 +88,57 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               ) : (
                 <View style={styles.ordersList}>
                   {pastOrders.map((ord, idx) => (
-                    <View key={idx} style={styles.orderItemCard}>
+                    <View key={ord.id || idx} style={styles.orderItemCard}>
                       <View style={styles.orderItemHeader}>
-                        <Text style={styles.orderTicketId}>#{ord.id || ord.trackingId}</Text>
+                        <Text style={styles.orderTicketId}>
+                          {ord.orderNumber || ord.trackingId || ord.id}
+                          {ord.pickupToken ? ` (${ord.pickupToken})` : ""}
+                        </Text>
                         <View style={styles.statusPill}>
-                          <Text style={styles.statusText}>{ord.status || "COMPLETED"}</Text>
+                          <Text style={styles.statusText}>
+                            {String(ord.status || "PLACED").replace(/_/g, " ")}
+                          </Text>
                         </View>
                       </View>
                       <Text style={styles.orderDate}>
-                        {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString() : "Recent"}
+                        {ord.createdAt ? new Date(ord.createdAt).toLocaleString() : "Recent"} •{" "}
+                        {ord.fulfillmentType === "DELIVERY" ? "Doorstep Delivery" : "Counter Pickup"}
                       </Text>
                       <Text style={styles.orderItemsSummary} numberOfLines={2}>
-                        {ord.items?.map((i: any) => `${i.quantity}x ${i.name}`).join(", ") || "Custom Plate"}
+                        {Array.isArray(ord.items) && ord.items.length > 0
+                          ? ord.items
+                              .map((i: any) => `${i.quantity || 1}x ${i.itemName || i.name || "Item"}`)
+                              .join(", ")
+                          : "Custom Plate"}
                       </Text>
                       <View style={styles.orderBottomRow}>
-                        <Text style={styles.orderTotal}>₦{ord.totalAmount?.toLocaleString()}</Text>
-                        {onReorder && (
-                          <TouchableOpacity
-                            style={styles.reorderBtn}
-                            onPress={() => {
-                              onReorder(ord)
-                              onClose()
-                            }}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={styles.reorderBtnText}>Reorder ↻</Text>
-                          </TouchableOpacity>
-                        )}
+                        <Text style={styles.orderTotal}>₦{Number(ord.totalAmount || 0).toLocaleString()}</Text>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          {onTrackOrder && (
+                            <TouchableOpacity
+                              style={styles.reorderBtn}
+                              onPress={() => {
+                                onClose()
+                                setTimeout(() => onTrackOrder(ord), 180)
+                              }}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.reorderBtnText}>Track</Text>
+                            </TouchableOpacity>
+                          )}
+                          {onReorder && (
+                            <TouchableOpacity
+                              style={styles.reorderBtn}
+                              onPress={() => {
+                                onReorder(ord)
+                                onClose()
+                              }}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.reorderBtnText}>Reorder ↻</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
                       </View>
                     </View>
                   ))}
@@ -310,7 +337,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: COLORS.primary,
-    fontFamily: "monospace",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
   },
   statusPill: {
     backgroundColor: COLORS.accentGreenLight,

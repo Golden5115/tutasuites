@@ -12,6 +12,7 @@ import {
 import { COLORS, SHADOWS } from "../constants/theme"
 import {
   MenuItem,
+  AddonCatalogItem,
   SOUP_OPTIONS,
   PROTEIN_ADDONS,
   SIDE_ADDONS,
@@ -24,6 +25,11 @@ interface MealDetailModalProps {
   visible: boolean
   onClose: () => void
   onAddToCart: (customizedItem: any) => void
+  soups?: AddonCatalogItem[]
+  proteins?: AddonCatalogItem[]
+  sides?: AddonCatalogItem[]
+  drinks?: AddonCatalogItem[]
+  takeawayPack?: AddonCatalogItem | null
 }
 
 export const MealDetailModal: React.FC<MealDetailModalProps> = ({
@@ -31,14 +37,23 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
   visible,
   onClose,
   onAddToCart,
+  soups = SOUP_OPTIONS,
+  proteins = PROTEIN_ADDONS,
+  sides = SIDE_ADDONS,
+  drinks = DRINK_ADDONS,
+  takeawayPack = PACKAGING_ADDON,
 }) => {
-  if (!item) return null
-
-  const isSwallow = item.category === "Swallow & Soup"
-  const isRice = item.category === "Rice"
+  const isSoupOnly =
+    item?.backendCategory === "Soup" || item?.itemKind === "SOUP"
+  const isSwallow =
+    !isSoupOnly &&
+    (item?.backendCategory === "Swallow" || item?.category === "Swallow & Soup")
+  const isRice = item?.category === "Rice"
+  const defaultSoupId = soups[0]?.id || "egusi-soup"
+  const packOption = takeawayPack || PACKAGING_ADDON
 
   const [quantity, setQuantity] = useState(1)
-  const [selectedSoup, setSelectedSoup] = useState<string>(isSwallow ? "soup-egusi" : "")
+  const [selectedSoup, setSelectedSoup] = useState<string>(isSwallow ? defaultSoupId : "")
   const [selectedProteins, setSelectedProteins] = useState<string[]>([])
   const [selectedSides, setSelectedSides] = useState<string[]>([])
   const [selectedDrinks, setSelectedDrinks] = useState<string[]>([])
@@ -48,13 +63,19 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
   // Reset states when item changes
   useEffect(() => {
     setQuantity(1)
-    setSelectedSoup(item?.category === "Swallow & Soup" ? "soup-egusi" : "")
+    const nextIsSwallow =
+      item?.backendCategory !== "Soup" &&
+      item?.itemKind !== "SOUP" &&
+      (item?.backendCategory === "Swallow" || item?.category === "Swallow & Soup")
+    setSelectedSoup(nextIsSwallow ? defaultSoupId : "")
     setSelectedProteins([])
     setSelectedSides([])
     setSelectedDrinks([])
     setIncludeTakeawayPack(true)
     setSpecialInstructions("")
-  }, [item])
+  }, [item, defaultSoupId])
+
+  if (!item) return null
 
   const toggleProtein = (id: string) => {
     setSelectedProteins((prev) =>
@@ -76,50 +97,74 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
 
   // Cost calculations
   const proteinCost = selectedProteins.reduce((sum, id) => {
-    const p = PROTEIN_ADDONS.find((addon) => addon.id === id)
+    const p = proteins.find((addon) => addon.id === id)
     return sum + (p ? p.price : 0)
   }, 0)
 
   const sideCost = selectedSides.reduce((sum, id) => {
-    const s = SIDE_ADDONS.find((addon) => addon.id === id)
+    const s = sides.find((addon) => addon.id === id)
     return sum + (s ? s.price : 0)
   }, 0)
 
   const drinkCost = selectedDrinks.reduce((sum, id) => {
-    const d = DRINK_ADDONS.find((addon) => addon.id === id)
+    const d = drinks.find((addon) => addon.id === id)
     return sum + (d ? d.price : 0)
   }, 0)
 
-  const packCost = includeTakeawayPack ? PACKAGING_ADDON.price : 0
+  const packCost = includeTakeawayPack ? packOption.price : 0
 
-  const singlePlateTotal = item.price + proteinCost + sideCost + drinkCost + packCost
+  const singlePlateTotal = Number(item.price || 0) + proteinCost + sideCost + drinkCost + packCost
   const grandTotal = singlePlateTotal * quantity
 
   const handleConfirm = () => {
-    const soupName = SOUP_OPTIONS.find((s) => s.id === selectedSoup)?.name
-    const proteinNames = selectedProteins
-      .map((id) => PROTEIN_ADDONS.find((p) => p.id === id)?.name)
-      .filter(Boolean) as string[]
-    const sideNames = selectedSides
-      .map((id) => SIDE_ADDONS.find((s) => s.id === id)?.name)
-      .filter(Boolean) as string[]
-    const drinkNames = selectedDrinks
-      .map((id) => DRINK_ADDONS.find((d) => d.id === id)?.name)
-      .filter(Boolean) as string[]
+    const selectedSoupObj = isSwallow
+      ? soups.find((s) => s.id === selectedSoup) || null
+      : null
+    const proteinObjs = selectedProteins
+      .map((id) => proteins.find((p) => p.id === id))
+      .filter(Boolean) as AddonCatalogItem[]
+    const sideObjs = selectedSides
+      .map((id) => sides.find((s) => s.id === id))
+      .filter(Boolean) as AddonCatalogItem[]
+    const drinkObjs = selectedDrinks
+      .map((id) => drinks.find((d) => d.id === id))
+      .filter(Boolean) as AddonCatalogItem[]
 
     onAddToCart({
       id: `${item.id}-${Date.now()}`,
       itemId: item.id,
+      slug: item.slug ?? null,
       name: item.name,
       basePrice: item.price,
       unitPrice: singlePlateTotal,
       quantity,
       totalPrice: grandTotal,
       image: item.image,
-      soup: soupName,
-      proteins: proteinNames,
-      sides: sideNames,
-      drinks: drinkNames,
+      soup: selectedSoupObj?.name,
+      soupRef: selectedSoupObj
+        ? { itemId: selectedSoupObj.id, slug: selectedSoupObj.slug ?? null, name: selectedSoupObj.name }
+        : null,
+      proteins: proteinObjs.map((p) => p.name),
+      proteinRefs: proteinObjs.map((p) => ({
+        itemId: p.id,
+        slug: p.slug ?? null,
+        name: p.name,
+        quantity: 1,
+      })),
+      sides: sideObjs.map((s) => s.name),
+      sideRefs: sideObjs.map((s) => ({
+        itemId: s.id,
+        slug: s.slug ?? null,
+        name: s.name,
+        quantity: 1,
+      })),
+      drinks: drinkObjs.map((d) => d.name),
+      drinkRefs: drinkObjs.map((d) => ({
+        itemId: d.id,
+        slug: d.slug ?? null,
+        name: d.name,
+        quantity: 1,
+      })),
       includePack: includeTakeawayPack,
       instructions: specialInstructions,
     })
@@ -169,7 +214,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
                     <Text style={styles.requiredTag}>REQUIRED</Text>
                   </View>
                 </View>
-                {SOUP_OPTIONS.map((soup) => {
+                {soups.map((soup) => {
                   const isSelected = selectedSoup === soup.id
                   return (
                     <TouchableOpacity
@@ -199,7 +244,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
                 </Text>
                 <Text style={styles.optionalTag}>OPTIONAL</Text>
               </View>
-              {PROTEIN_ADDONS.map((p) => {
+              {proteins.map((p) => {
                 const isSelected = selectedProteins.includes(p.id)
                 return (
                   <TouchableOpacity
@@ -226,7 +271,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
                 <Text style={styles.sectionTitle}>Add Sides & Shawarma</Text>
                 <Text style={styles.optionalTag}>OPTIONAL</Text>
               </View>
-              {SIDE_ADDONS.map((s) => {
+              {sides.map((s) => {
                 const isSelected = selectedSides.includes(s.id)
                 return (
                   <TouchableOpacity
@@ -253,7 +298,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
                 <Text style={styles.sectionTitle}>Add Chilled Drink or Zobo</Text>
                 <Text style={styles.optionalTag}>OPTIONAL</Text>
               </View>
-              {DRINK_ADDONS.map((d) => {
+              {drinks.map((d) => {
                 const isSelected = selectedDrinks.includes(d.id)
                 return (
                   <TouchableOpacity
@@ -290,7 +335,7 @@ export const MealDetailModal: React.FC<MealDetailModalProps> = ({
                     <Text style={styles.packSubtitle}>Hygienic sealed takeaway container</Text>
                   </View>
                 </View>
-                <Text style={styles.addonPrice}>+₦{PACKAGING_ADDON.price}</Text>
+                <Text style={styles.addonPrice}>+₦{packOption.price}</Text>
               </TouchableOpacity>
             </View>
 

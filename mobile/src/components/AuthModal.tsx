@@ -9,12 +9,14 @@ import {
   ScrollView,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from "react-native";
 import { COLORS, SHADOWS } from "../constants/theme";
 import { ENDPOINTS } from "../constants/config";
 import {
   AuthenticatedCustomer,
+  sanitizeCustomerProfile,
   saveAuthSession,
 } from "../services/authService";
 
@@ -122,8 +124,19 @@ export function AuthModal({
   onAuthSuccess,
 }: AuthModalProps) {
   const notifyAuthSuccess = (user: AuthenticatedCustomer) => {
-    onSuccess?.(user);
-    onAuthSuccess?.(user);
+    const safeUser = sanitizeCustomerProfile(user);
+    onSuccess?.(safeUser);
+    onAuthSuccess?.(safeUser);
+  };
+
+  const completeAuthAndClose = (user: AuthenticatedCustomer) => {
+    Keyboard.dismiss();
+    setGoogleModalOpen(false);
+    notifyAuthSuccess(user);
+    // Defer native Modal dismissal by one frame so keyboard/inputs unmount cleanly on RN Fabric
+    requestAnimationFrame(() => {
+      onClose();
+    });
   };
 
   const [step, setStep] = useState<AuthStep>("LOGIN");
@@ -409,8 +422,7 @@ export function AuthModal({
             new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         });
         setLoading(false);
-        notifyAuthSuccess(data.user);
-        onClose();
+        completeAuthAndClose(data.user);
         return;
       }
 
@@ -654,8 +666,7 @@ export function AuthModal({
 
         setLoading(false);
         appendLog(`Sign-up complete! Closing AuthModal.`);
-        notifyAuthSuccess(verifiedUser);
-        onClose();
+        completeAuthAndClose(verifiedUser);
         return;
       }
 
@@ -703,8 +714,7 @@ export function AuthModal({
               data.refreshTokenExpiresAt ||
               new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
           });
-          notifyAuthSuccess(data.user);
-          onClose();
+          completeAuthAndClose(data.user);
           return;
         }
       }
@@ -955,9 +965,7 @@ export function AuthModal({
           data.refreshTokenExpiresAt ||
           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       });
-      setGoogleModalOpen(false);
-      notifyAuthSuccess(data.user);
-      onClose();
+      completeAuthAndClose(data.user);
       return;
     }
 
@@ -990,9 +998,7 @@ export function AuthModal({
       ).toISOString(),
     });
 
-    setGoogleModalOpen(false);
-    notifyAuthSuccess(fallbackGoogleUser);
-    onClose();
+    completeAuthAndClose(fallbackGoogleUser);
   };
 
   const renderSixBoxOtpInputs = () => (
@@ -1718,9 +1724,9 @@ export function AuthModal({
           </ScrollView>
         </View>
 
-        {/* Google Sign-In Sub-Modal */}
-        <Modal visible={googleModalOpen} transparent animationType="fade">
-          <View style={styles.googleOverlay}>
+        {/* Google Sign-In In-Sheet Overlay (avoids nested native Modal crash on RN Fabric) */}
+        {googleModalOpen && (
+          <View style={[styles.googleOverlay, styles.googleOverlayLayer]}>
             <View style={styles.googleDialog}>
               <View style={styles.googleDialogHeader}>
                 <View style={styles.googleLogoCircleLarge}>
@@ -1822,7 +1828,7 @@ export function AuthModal({
               </View>
             </View>
           </View>
-        </Modal>
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -2244,6 +2250,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.82)",
     justifyContent: "center",
     padding: 22,
+  },
+  googleOverlayLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 50,
+    elevation: 50,
   },
   googleDialog: {
     backgroundColor: "#131722",

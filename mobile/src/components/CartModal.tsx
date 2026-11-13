@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   View,
   Text,
@@ -10,16 +10,22 @@ import {
   Alert,
 } from "react-native"
 import { COLORS, SHADOWS } from "../constants/theme"
+import { ENDPOINTS } from "../constants/config"
+import { DeliveryZoneOption, MOWE_DELIVERY_ZONES } from "../constants/menuData"
+import { authenticatedFetch } from "../services/authService"
 
 interface CartModalProps {
   visible: boolean
   onClose: () => void
   cartItems: any[]
   onUpdateQty: (id: string, delta: number) => void
-  onCheckout: (orderData: any) => void
+  onCheckout: (serverOrder: any) => void
   currentAddress: string
   fulfillmentMode: "DELIVERY" | "PICKUP"
   onFulfillmentChange: (mode: "DELIVERY" | "PICKUP") => void
+  deliveryZones?: DeliveryZoneOption[]
+  selectedZoneId?: string
+  onSelectZoneId?: (zoneId: string) => void
   currentUser?: any | null
   onOpenAuth?: () => void
 }
@@ -33,15 +39,32 @@ export const CartModal: React.FC<CartModalProps> = ({
   currentAddress,
   fulfillmentMode,
   onFulfillmentChange,
+  deliveryZones = MOWE_DELIVERY_ZONES,
+  selectedZoneId,
+  onSelectZoneId,
   currentUser,
   onOpenAuth,
 }) => {
-  const [customerName, setCustomerName] = useState(currentUser?.name || "Guest Customer")
-  const [customerPhone, setCustomerPhone] = useState(currentUser?.phone || "08012345678")
+  const [customerName, setCustomerName] = useState(currentUser?.name || "Tuta Customer")
+  const [customerPhone, setCustomerPhone] = useState(currentUser?.phone || "")
   const [deliveryAddress, setDeliveryAddress] = useState(currentUser?.address || currentAddress)
+  const [deliveryLandmark, setDeliveryLandmark] = useState("")
   const [notes, setNotes] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState<"TRANSFER" | "POS_COUNTER">("TRANSFER")
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "POS" | "BANK_TRANSFER">("BANK_TRANSFER")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState("")
+  const [localZoneId, setLocalZoneId] = useState(
+    selectedZoneId || deliveryZones[0]?.id || "mowe-assurance-cda",
+  )
+  const attemptIdempotencyKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (selectedZoneId) {
+      setLocalZoneId(selectedZoneId)
+    } else if (!localZoneId && deliveryZones.length > 0) {
+      setLocalZoneId(deliveryZones[0].id)
+    }
+  }, [selectedZoneId, deliveryZones, localZoneId])
 
   useEffect(() => {
     if (currentUser) {
@@ -51,45 +74,135 @@ export const CartModal: React.FC<CartModalProps> = ({
     }
   }, [currentUser])
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
-  const deliveryFee = fulfillmentMode === "DELIVERY" ? 1200 : 0
+  // Reset idempotency key when tray signature changes so edited orders generate a fresh attempt
+  useEffect(() => {
+    attemptIdempotencyKeyRef.current = null
+    setSubmitError("")
+  }, [cartItems, fulfillmentMode, localZoneId, paymentMethod])
+
+  const activeZone =
+    deliveryZones.find((z) => z.id === localZoneId || z.slug === localZoneId) ||
+    deliveryZones[0] ||
+    MOWE_DELIVERY_ZONES[0]
+
+  const subtotal = cartItems.reduce((sum, item) => sum + Number(item?.totalPrice || 0), 0)
+  const deliveryFee = fulfillmentMode === "DELIVERY" ? Number(activeZone?.deliveryFee ?? 1200) : 0
   const grandTotal = subtotal + deliveryFee
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
+    setSubmitError("")
     if (cartItems.length === 0) {
       Alert.alert("Tray is Empty", "Please add some delicious meals from the menu first.")
       return
     }
 
-    if (!customerPhone.trim()) {
-      Alert.alert("Missing Phone", "Please enter your phone number so we can notify you when your meal is ready.")
+    if (!currentUser) {
+      Alert.alert(
+        "Sign In Required",
+        "Please sign in or verify your email account to place a tracked Tuta Grab & Go order.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Sign In / Register",
+            onPress: () => onOpenAuth?.(),
+          },
+        ],
+      )
       return
     }
 
-    if (fulfillmentMode === "DELIVERY" && !deliveryAddress.trim()) {
-      Alert.alert("Missing Delivery Address", "Please enter your delivery address or estate in Mowe.")
+    if (!customerPhone.trim()) {
+      Alert.alert("Missing Phone", "Please enter your phone number so we can notify you.")
       return
     }
+
+    if (fulfillmentMode === "DELIVERY" && deliveryAddress.trim().length < 5) {
+      Alert.alert("Missing Delivery Address", "Please enter your complete street address or estate in Mowe.")
+      return
+    }
+
+    if (!attemptIdempotencyKeyRef.current) {
+      const rand = Math.random().toString(36).slice(2, 10)
+      attemptIdempotencyKeyRef.current = `mob_${Date.now()}_${rand}`
+    }
+
+    const structuredItems = cartItems.map((it) => ({
+      itemId: it.itemId || it.id,
+      slug: it.slug ?? null,
+      name: it.name,
+      quantity: Number(it.quantity || 1),
+      soup: it.soupRef || (it.soup ? { name: it.soup } : null),
+      proteins: Array.isArray(it.proteinRefs)
+        ? it.proteinRefs
+        : Array.isArray(it.proteins)
+          ? it.proteins.map((p: any) => (typeof p === "string" ? { name: p, quantity: 1 } : p))
+          : [],
+      sides: Array.isArray(it.sideRefs)
+        ? it.sideRefs
+        : Array.isArray(it.sides)
+          ? it.sides.map((s: any) => (typeof s === "string" ? { name: s, quantity: 1 } : s))
+          : [],
+      drinks: Array.isArray(it.drinkRefs)
+        ? it.drinkRefs
+        : Array.isArray(it.drinks)
+          ? it.drinks.map((d: any) => (typeof d === "string" ? { name: d, quantity: 1 } : d))
+          : [],
+      includePack: Boolean(it.includePack),
+      specialInstructions: it.instructions || undefined,
+    }))
 
     setIsSubmitting(true)
-    setTimeout(() => {
-      setIsSubmitting(false)
-      onCheckout({
-        type: "GRAB_AND_GO",
-        fulfillmentMode,
-        items: cartItems,
-        customerName: customerName.trim() || "Guest Customer",
-        customerPhone: customerPhone.trim(),
-        deliveryAddress: fulfillmentMode === "DELIVERY" ? deliveryAddress : "Tuta Express Counter (Pickup)",
-        deliveryArea: fulfillmentMode === "DELIVERY" ? (deliveryAddress.includes("Ibafo") ? "Ibafo" : "Mowe") : "Pickup Counter",
-        notes,
-        paymentMethod,
-        subtotal,
-        deliveryFee,
-        totalAmount: grandTotal,
+    try {
+      const res = await authenticatedFetch(ENDPOINTS.orders, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": attemptIdempotencyKeyRef.current,
+        },
+        body: JSON.stringify({
+          fulfillmentType: fulfillmentMode,
+          paymentMethod,
+          deliveryZoneId: fulfillmentMode === "DELIVERY" ? activeZone?.id : undefined,
+          deliveryZoneSlug: fulfillmentMode === "DELIVERY" ? activeZone?.slug : undefined,
+          deliveryZoneName: fulfillmentMode === "DELIVERY" ? activeZone?.name : undefined,
+          deliveryAddress:
+            fulfillmentMode === "DELIVERY"
+              ? deliveryAddress.trim()
+              : "Tuta Express Counter (Pickup)",
+          deliveryLandmark:
+            fulfillmentMode === "DELIVERY" ? deliveryLandmark.trim() : undefined,
+          customerNotes: notes.trim() || undefined,
+          idempotencyKey: attemptIdempotencyKeyRef.current,
+          items: structuredItems,
+        }),
       })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.order) {
+        const msg =
+          data?.error ||
+          (res.status === 401
+            ? "Your session expired. Please sign in again."
+            : "Could not submit order. Please review your tray and try again.")
+        setSubmitError(msg)
+        if (res.status === 401) {
+          onOpenAuth?.()
+        }
+        return
+      }
+
+      attemptIdempotencyKeyRef.current = null
+      onCheckout(data.order)
       onClose()
-    }, 400)
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "Network error reaching order server. Safe to retry without duplicate charges.",
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -152,8 +265,8 @@ export const CartModal: React.FC<CartModalProps> = ({
                   <View key={item.id} style={[styles.itemCard, SHADOWS.card]}>
                     <View style={styles.itemHeader}>
                       <View style={styles.itemInfo}>
-                        <Text style={styles.itemName}>{item.name}</Text>
-                        <Text style={styles.itemPrice}>₦{item.totalPrice.toLocaleString()}</Text>
+                        <Text style={styles.itemName}>{item.name || "Dish"}</Text>
+                        <Text style={styles.itemPrice}>₦{Number(item.totalPrice || 0).toLocaleString()}</Text>
                       </View>
 
                       {/* Quantity Stepper */}
@@ -242,16 +355,61 @@ export const CartModal: React.FC<CartModalProps> = ({
                 </View>
 
                 {fulfillmentMode === "DELIVERY" && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Delivery Address / Estate</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      value={deliveryAddress}
-                      onChangeText={setDeliveryAddress}
-                      placeholder="e.g. Flat 3, Assurance CDA Estate, Mowe"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                  </View>
+                  <>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Mowe Corridor Delivery Zone</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 4 }}>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          {deliveryZones.map((zone) => {
+                            const selected = activeZone?.id === zone.id
+                            return (
+                              <TouchableOpacity
+                                key={zone.id}
+                                onPress={() => {
+                                  setLocalZoneId(zone.id)
+                                  onSelectZoneId?.(zone.id)
+                                }}
+                                style={[
+                                  styles.zoneChip,
+                                  selected && styles.zoneChipActive,
+                                ]}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[styles.zoneChipName, selected && styles.zoneChipTextActive]}>
+                                  {zone.name}
+                                </Text>
+                                <Text style={[styles.zoneChipFee, selected && styles.zoneChipTextActive]}>
+                                  ₦{Number(zone.deliveryFee).toLocaleString()} • {zone.etaMinMinutes}-{zone.etaMaxMinutes}m
+                                </Text>
+                              </TouchableOpacity>
+                            )
+                          })}
+                        </View>
+                      </ScrollView>
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Delivery Street Address / Estate</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={deliveryAddress}
+                        onChangeText={setDeliveryAddress}
+                        placeholder="e.g. Plot 12, Assurance CDA Estate, Mowe"
+                        placeholderTextColor={COLORS.textMuted}
+                      />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Nearest Landmark (Optional)</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={deliveryLandmark}
+                        onChangeText={setDeliveryLandmark}
+                        placeholder="e.g. Beside Redemption Camp Gate / Supermarket"
+                        placeholderTextColor={COLORS.textMuted}
+                      />
+                    </View>
+                  </>
                 )}
 
                 <View style={styles.inputGroup}>
@@ -272,36 +430,60 @@ export const CartModal: React.FC<CartModalProps> = ({
               <View style={styles.section}>
                 <Text style={styles.sectionHeader}>Payment Option</Text>
                 <TouchableOpacity
-                  style={[styles.paymentRow, paymentMethod === "TRANSFER" && styles.paymentRowActive]}
-                  onPress={() => setPaymentMethod("TRANSFER")}
+                  style={[styles.paymentRow, paymentMethod === "BANK_TRANSFER" && styles.paymentRowActive]}
+                  onPress={() => setPaymentMethod("BANK_TRANSFER")}
                   activeOpacity={0.8}
                 >
-                  <View style={[styles.radio, paymentMethod === "TRANSFER" && styles.radioActive]}>
-                    {paymentMethod === "TRANSFER" && <View style={styles.radioDot} />}
+                  <View style={[styles.radio, paymentMethod === "BANK_TRANSFER" && styles.radioActive]}>
+                    {paymentMethod === "BANK_TRANSFER" && <View style={styles.radioDot} />}
                   </View>
                   <View style={styles.paymentInfo}>
                     <Text style={styles.paymentTitle}>Instant Bank Transfer</Text>
-                    <Text style={styles.paymentSubtitle}>Direct transfer to Tuta Grab & Go dedicated account</Text>
+                    <Text style={styles.paymentSubtitle}>
+                      Verified by Tuta cashier before kitchen begins cooking
+                    </Text>
                   </View>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.paymentRow, paymentMethod === "POS_COUNTER" && styles.paymentRowActive]}
-                  onPress={() => setPaymentMethod("POS_COUNTER")}
+                  style={[styles.paymentRow, paymentMethod === "CASH" && styles.paymentRowActive]}
+                  onPress={() => setPaymentMethod("CASH")}
                   activeOpacity={0.8}
                 >
-                  <View style={[styles.radio, paymentMethod === "POS_COUNTER" && styles.radioActive]}>
-                    {paymentMethod === "POS_COUNTER" && <View style={styles.radioDot} />}
+                  <View style={[styles.radio, paymentMethod === "CASH" && styles.radioActive]}>
+                    {paymentMethod === "CASH" && <View style={styles.radioDot} />}
                   </View>
                   <View style={styles.paymentInfo}>
                     <Text style={styles.paymentTitle}>
-                      {fulfillmentMode === "PICKUP" ? "Pay at Counter (POS / Cash)" : "Pay on Delivery (POS / Cash)"}
+                      {fulfillmentMode === "PICKUP" ? "Pay Cash at Counter" : "Pay Cash on Delivery"}
                     </Text>
-                    <Text style={styles.paymentSubtitle}>Pay when collecting meal or upon arrival of rider</Text>
+                    <Text style={styles.paymentSubtitle}>Sent immediately to kitchen queue; pay on collection</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.paymentRow, paymentMethod === "POS" && styles.paymentRowActive]}
+                  onPress={() => setPaymentMethod("POS")}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.radio, paymentMethod === "POS" && styles.radioActive]}>
+                    {paymentMethod === "POS" && <View style={styles.radioDot} />}
+                  </View>
+                  <View style={styles.paymentInfo}>
+                    <Text style={styles.paymentTitle}>
+                      {fulfillmentMode === "PICKUP" ? "Pay with POS Card at Counter" : "Pay with Rider POS on Delivery"}
+                    </Text>
+                    <Text style={styles.paymentSubtitle}>Tap debit/ATM card at handover</Text>
                   </View>
                 </TouchableOpacity>
               </View>
             )}
+
+            {submitError ? (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorBannerText}>{submitError}</Text>
+              </View>
+            ) : null}
 
             {/* Order Summary Breakdown */}
             {cartItems.length > 0 && (
@@ -351,6 +533,45 @@ export const CartModal: React.FC<CartModalProps> = ({
 }
 
 const styles = StyleSheet.create({
+  zoneChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  zoneChipActive: {
+    backgroundColor: COLORS.goldGlow,
+    borderColor: COLORS.primary,
+  },
+  zoneChipName: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  zoneChipFee: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  zoneChipTextActive: {
+    color: COLORS.primary,
+  },
+  errorBanner: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(239, 68, 68, 0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.5)",
+  },
+  errorBannerText: {
+    color: "#FCA5A5",
+    fontSize: 12,
+    fontWeight: "700",
+  },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.8)",

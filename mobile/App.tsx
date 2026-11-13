@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from "react"
+import React, { Component, ErrorInfo, ReactNode, useState, useEffect, useCallback } from "react"
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -8,10 +7,24 @@ import {
   TouchableOpacity,
   Modal,
   ActivityIndicator,
+  AppState,
 } from "react-native"
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar"
 import { COLORS, SHADOWS } from "./src/constants/theme"
-import { MENU_ITEMS, MenuItem } from "./src/constants/menuData"
+import {
+  MENU_ITEMS,
+  MenuItem,
+  AddonCatalogItem,
+  DeliveryZoneOption,
+  MOWE_DELIVERY_ZONES,
+  SOUP_OPTIONS,
+  PROTEIN_ADDONS,
+  SIDE_ADDONS,
+  DRINK_ADDONS,
+  PACKAGING_ADDON,
+  mapServerMenuItem,
+} from "./src/constants/menuData"
 import { ENDPOINTS } from "./src/constants/config"
 import { Header } from "./src/components/Header"
 import { CategoryBar } from "./src/components/CategoryBar"
@@ -25,13 +38,76 @@ import {
   authenticatedFetch,
   logoutCustomerSession,
   restoreCustomerSession,
+  sanitizeCustomerProfile,
 } from "./src/services/authService"
 
-export default function App() {
+interface ErrorBoundaryState {
+  hasError: boolean
+  errorMessage: string
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, errorMessage: "" }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return {
+      hasError: true,
+      errorMessage: error?.message || "An unexpected rendering error occurred.",
+    }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[TUTA MOBILE ERROR BOUNDARY]", error, info?.componentStack)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={styles.errorSafeArea}>
+          <View style={styles.errorCard}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+            <Text style={styles.errorTitle}>Something went wrong</Text>
+            <Text style={styles.errorSub}>{this.state.errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.errorRetryBtn}
+              onPress={() => this.setState({ hasError: false, errorMessage: "" })}
+            >
+              <Text style={styles.errorRetryText}>Recover App Screen</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      )
+    }
+    return this.props.children
+  }
+}
+
+const TERMINAL_ORDER_STATUSES = new Set([
+  "COMPLETED",
+  "REJECTED",
+  "CANCELLED",
+  "REFUNDED",
+])
+
+function toAddonList(list: unknown, fallback: AddonCatalogItem[]): AddonCatalogItem[] {
+  if (!Array.isArray(list) || list.length === 0) return fallback
+  return list
+    .map((entry: any) => ({
+      id: String(entry?.id || entry?.slug || ""),
+      slug: typeof entry?.slug === "string" ? entry.slug : null,
+      name: String(entry?.name || ""),
+      price: Number(entry?.price ?? 0),
+    }))
+    .filter((a) => a.id && a.name)
+}
+
+function AppScreen() {
   const [fulfillmentMode, setFulfillmentMode] = useState<"DELIVERY" | "PICKUP">("PICKUP")
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [searchQuery, setSearchQuery] = useState("")
-  const [currentAddress, setCurrentAddress] = useState("Mowe, Assurance CDA Estate")
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZoneOption[]>(MOWE_DELIVERY_ZONES)
+  const [selectedZoneId, setSelectedZoneId] = useState<string>(MOWE_DELIVERY_ZONES[0].id)
+  const [currentAddress, setCurrentAddress] = useState("Mowe Assurance CDA")
   const [showAddressPicker, setShowAddressPicker] = useState(false)
 
   // User Authentication & Profile State
@@ -40,43 +116,99 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [pastOrders, setPastOrders] = useState<any[]>([])
 
-  const syncCustomerOrders = async () => {
+  // Cart & Customizer State
+  const [cartItems, setCartItems] = useState<any[]>([])
+  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
+  const [showDetailModal, setShowDetailModal] = useState(false)
+  const [showCartModal, setShowCartModal] = useState(false)
+
+  // Live Catalog, Addons & Active Order Tracking State
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(MENU_ITEMS)
+  const [addonCatalog, setAddonCatalog] = useState<{
+    soups: AddonCatalogItem[]
+    proteins: AddonCatalogItem[]
+    sides: AddonCatalogItem[]
+    drinks: AddonCatalogItem[]
+    takeawayPack: AddonCatalogItem
+  }>({
+    soups: SOUP_OPTIONS,
+    proteins: PROTEIN_ADDONS,
+    sides: SIDE_ADDONS,
+    drinks: DRINK_ADDONS,
+    takeawayPack: PACKAGING_ADDON,
+  })
+  const [isLoadingMenu, setIsLoadingMenu] = useState(false)
+  const [activeOrder, setActiveOrder] = useState<any>(null)
+  const [showTrackingModal, setShowTrackingModal] = useState(false)
+
+  const syncCustomerOrders = useCallback(async () => {
     try {
       const res = await authenticatedFetch(ENDPOINTS.myOrders)
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data?.orders)) {
           setPastOrders(data.orders)
+          setActiveOrder((current: any) => {
+            if (current?.id) {
+              const refreshed = data.orders.find(
+                (o: any) =>
+                  o.id === current.id ||
+                  (o.orderNumber && o.orderNumber === current.orderNumber),
+              )
+              if (refreshed) return refreshed
+            }
+            const firstOpen = data.orders.find(
+              (o: any) => !TERMINAL_ORDER_STATUSES.has(String(o?.status || "").toUpperCase()),
+            )
+            return firstOpen || current
+          })
         }
       }
     } catch {
       // Ignore transient offline error during order history fetch
     }
-  }
+  }, [])
 
   // Automatic persistent session restoration from Expo SecureStore on startup
   useEffect(() => {
     let isMounted = true
     const bootAuthSession = async () => {
-      const restoredUser = await restoreCustomerSession()
-      if (isMounted && restoredUser) {
-        setCurrentUser(restoredUser)
-        if (restoredUser.address) {
-          setCurrentAddress(restoredUser.address)
+      try {
+        const restoredUser = await restoreCustomerSession()
+        if (isMounted && restoredUser) {
+          const safeUser = sanitizeCustomerProfile(restoredUser)
+          setCurrentUser(safeUser)
+          if (safeUser.address) {
+            setCurrentAddress(safeUser.address)
+          }
+          syncCustomerOrders()
         }
-        syncCustomerOrders()
+      } catch {
+        // Ignore transient startup storage error
       }
     }
     bootAuthSession()
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [syncCustomerOrders])
+
+  // Refresh order tracking & history when returning app to foreground
+  useEffect(() => {
+    if (!currentUser) return
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        syncCustomerOrders()
+      }
+    })
+    return () => sub.remove()
+  }, [currentUser, syncCustomerOrders])
 
   const handleAuthSuccess = (user: UserProfile) => {
-    setCurrentUser(user)
-    if (user.address) {
-      setCurrentAddress(user.address)
+    const safeUser = sanitizeCustomerProfile(user)
+    setCurrentUser(safeUser)
+    if (safeUser.address) {
+      setCurrentAddress(safeUser.address)
     }
     syncCustomerOrders()
   }
@@ -84,27 +216,61 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null)
     setPastOrders([])
+    setActiveOrder(null)
+    setShowTrackingModal(false)
     logoutCustomerSession()
   }
 
   const handleReorder = (pastOrder: any) => {
-    if (pastOrder.items && Array.isArray(pastOrder.items)) {
-      setCartItems(pastOrder.items)
-      setShowCartModal(true)
-    }
+    if (!pastOrder?.items || !Array.isArray(pastOrder.items)) return
+    const normalizedItems = pastOrder.items.map((it: any, idx: number) => {
+      const qty = Math.max(1, Number(it.quantity || 1))
+      const unitPrice = Number(it.unitPrice ?? (Number(it.totalPrice || 0) / qty || 0))
+      const name = String(it.name || it.itemName || "Menu Item")
+      const resolvedItemId = String(it.itemId || it.id || "")
+      const matchedCatalog = menuItems.find(
+        (m) => m.id === resolvedItemId || m.name.toLowerCase() === name.toLowerCase(),
+      )
+      return {
+        id: `${resolvedItemId || idx}-reorder-${Date.now()}-${idx}`,
+        itemId: matchedCatalog?.id || resolvedItemId,
+        slug: matchedCatalog?.slug ?? it.slug ?? null,
+        name,
+        basePrice: Number(it.basePrice ?? unitPrice),
+        unitPrice,
+        quantity: qty,
+        totalPrice: unitPrice * qty,
+        image: it.image || matchedCatalog?.image,
+        soup: it.soup || it.selectedSoup || undefined,
+        soupRef: it.soupRef || (it.selectedSoup ? { name: it.selectedSoup } : null),
+        proteins: Array.isArray(it.proteins)
+          ? it.proteins
+          : Array.isArray(it.selectedProteins)
+            ? it.selectedProteins
+            : [],
+        proteinRefs: Array.isArray(it.proteinRefs) ? it.proteinRefs : undefined,
+        sides: Array.isArray(it.sides)
+          ? it.sides
+          : Array.isArray(it.selectedSides)
+            ? it.selectedSides
+            : [],
+        sideRefs: Array.isArray(it.sideRefs) ? it.sideRefs : undefined,
+        drinks: Array.isArray(it.drinks)
+          ? it.drinks
+          : Array.isArray(it.selectedDrinks)
+            ? it.selectedDrinks
+            : [],
+        drinkRefs: Array.isArray(it.drinkRefs) ? it.drinkRefs : undefined,
+        includePack: Boolean(it.includePack),
+        instructions: it.instructions || it.specialInstructions || "",
+      }
+    })
+    setCartItems(normalizedItems)
+    // Allow ProfileModal to finish dismissing cleanly before opening CartModal on RN Fabric
+    setTimeout(() => setShowCartModal(true), 180)
   }
 
-  // Cart & Customizer State
-  const [cartItems, setCartItems] = useState<any[]>([])
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
-  const [showDetailModal, setShowDetailModal] = useState(false)
-  const [showCartModal, setShowCartModal] = useState(false)
-
-  // Active Order Tracking State
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(MENU_ITEMS)
-  const [isLoadingMenu, setIsLoadingMenu] = useState(false)
-
-  // Fetch live menu from tutasuites.com
+  // Fetch live menu, addon catalog & Mowe delivery zones from tutasuites.com
   useEffect(() => {
     let isMounted = true
     const loadLiveMenu = async () => {
@@ -114,10 +280,48 @@ export default function App() {
         if (res.ok) {
           const data = await res.json()
           if (data.items && Array.isArray(data.items) && data.items.length > 0 && isMounted) {
-            setMenuItems(data.items)
+            const mapped = data.items
+              .filter((raw: any) => raw?.isAvailable !== false)
+              .map((raw: any) => mapServerMenuItem(raw))
+              .filter((m: MenuItem) => m.itemKind !== "PACK")
+            if (mapped.length > 0) {
+              setMenuItems(mapped)
+            }
+          }
+          if (Array.isArray(data.deliveryZones) && data.deliveryZones.length > 0 && isMounted) {
+            const zones: DeliveryZoneOption[] = data.deliveryZones.map((z: any) => ({
+              id: String(z.id),
+              slug: String(z.slug || z.id),
+              name: String(z.name),
+              corridor: z.corridor ? String(z.corridor) : undefined,
+              deliveryFee: Number(z.deliveryFee ?? 0),
+              etaMinMinutes: z.etaMinMinutes ? Number(z.etaMinMinutes) : undefined,
+              etaMaxMinutes: z.etaMaxMinutes ? Number(z.etaMaxMinutes) : undefined,
+            }))
+            setDeliveryZones(zones)
+            setSelectedZoneId((prev) =>
+              zones.some((z) => z.id === prev) ? prev : zones[0].id,
+            )
+          }
+          if (data.groups && isMounted) {
+            const rawPack = data.groups.takeawayPack
+            setAddonCatalog({
+              soups: toAddonList(data.groups.soups, SOUP_OPTIONS),
+              proteins: toAddonList(data.groups.proteins, PROTEIN_ADDONS),
+              sides: toAddonList(data.groups.sides, SIDE_ADDONS),
+              drinks: toAddonList(data.groups.drinks, DRINK_ADDONS),
+              takeawayPack: rawPack
+                ? {
+                    id: String(rawPack.id || rawPack.slug || PACKAGING_ADDON.id),
+                    slug: rawPack.slug ? String(rawPack.slug) : PACKAGING_ADDON.slug,
+                    name: String(rawPack.name || PACKAGING_ADDON.name),
+                    price: Number(rawPack.price ?? PACKAGING_ADDON.price),
+                  }
+                : PACKAGING_ADDON,
+            })
           }
         }
-      } catch (e) {
+      } catch {
         // Keeps local fallback menu smoothly if network unavailable
       } finally {
         if (isMounted) setIsLoadingMenu(false)
@@ -129,45 +333,42 @@ export default function App() {
     }
   }, [])
 
-  const [activeOrder, setActiveOrder] = useState<any>({
-    id: "TGG-1048",
-    trackingId: "TGG-1048",
-    type: "GRAB_AND_GO",
-    fulfillmentMode: "PICKUP",
-    items: [
-      { name: "Smokey Jollof Rice", quantity: 1, totalPrice: 500 },
-      { name: "Crispy Grilled Turkey", quantity: 1, totalPrice: 4000 },
-      { name: "Chilled Zobo Special", quantity: 1, totalPrice: 1000 },
-      { name: "Take Away Pack", quantity: 1, totalPrice: 300 },
-    ],
-    deliveryAddress: "Tuta Express Counter (Pickup)",
-    deliveryArea: "Pickup Counter",
-    subtotal: 5800,
-    deliveryFee: 0,
-    totalAmount: 5800,
-    estimatedMinutes: 10,
-    status: "PREPARING",
-  })
-  const [showTrackingModal, setShowTrackingModal] = useState(false)
-
   // Filtering menu items
   const filteredItems = menuItems.filter((item) => {
     const matchesCat = selectedCategory === "All" || item.category === selectedCategory
+    const q = searchQuery.toLowerCase()
     const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.desc.toLowerCase().includes(searchQuery.toLowerCase())
+      (item.name || "").toLowerCase().includes(q) ||
+      (item.desc || "").toLowerCase().includes(q)
     return matchesCat && matchesSearch
   })
 
-  // Quick Add handler (adds single unit)
+  // Quick Add handler (adds single unit with accurate pack pricing for mains)
   const handleQuickAdd = (item: MenuItem) => {
+    const isFoodMain =
+      (item.category === "Rice" ||
+        item.category === "Swallow & Soup" ||
+        item.category === "Sides & Shawarma") &&
+      item.itemKind !== "SOUP" &&
+      item.backendCategory !== "Soup"
+    const packPrice = isFoodMain ? Number(addonCatalog.takeawayPack?.price ?? 300) : 0
+    const computedUnitPrice = Number(item.price || 0) + packPrice
+
     setCartItems((prev) => {
-      const existing = prev.find((i) => i.itemId === item.id && !i.proteins?.length && !i.soup)
+      const existing = prev.find(
+        (i) =>
+          i.itemId === item.id &&
+          !i.proteins?.length &&
+          !i.sides?.length &&
+          !i.drinks?.length &&
+          !i.soup &&
+          Boolean(i.includePack) === isFoodMain,
+      )
       if (existing) {
         return prev.map((i) =>
           i.id === existing.id
             ? { ...i, quantity: i.quantity + 1, totalPrice: (i.quantity + 1) * i.unitPrice }
-            : i
+            : i,
         )
       }
       return [
@@ -175,16 +376,21 @@ export default function App() {
         {
           id: `${item.id}-${Date.now()}`,
           itemId: item.id,
+          slug: item.slug ?? null,
           name: item.name,
           basePrice: item.price,
-          unitPrice: item.price,
+          unitPrice: computedUnitPrice,
           quantity: 1,
-          totalPrice: item.price,
+          totalPrice: computedUnitPrice,
           image: item.image,
+          soupRef: null,
           proteins: [],
+          proteinRefs: [],
           sides: [],
+          sideRefs: [],
           drinks: [],
-          includePack: true,
+          drinkRefs: [],
+          includePack: isFoodMain,
           instructions: "",
         },
       ]
@@ -212,61 +418,71 @@ export default function App() {
           }
           return item
         })
-        .filter(Boolean) as any[]
+        .filter(Boolean) as any[],
     )
   }
 
-  // Handle Checkout
-  const handleCheckout = async (orderData: any) => {
-    const trackingCode = `TGG-${Math.floor(1000 + Math.random() * 9000)}`
-    const newOrder = {
-      ...orderData,
-      id: trackingCode,
-      trackingId: trackingCode,
-      estimatedMinutes: fulfillmentMode === "PICKUP" ? 10 : 25,
-      status: "PREPARING",
-    }
-
-    // Post to live backend https://tutasuites.com/api/mobile/orders with authenticated session
-    try {
-      authenticatedFetch(ENDPOINTS.orders, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "GRAB_AND_GO",
-          trackingId: trackingCode,
-          orderType: fulfillmentMode === "PICKUP" ? "TAKEAWAY" : "DELIVERY",
-          customerName: orderData.customerName,
-          customerPhone: orderData.customerPhone,
-          deliveryAddress: orderData.deliveryAddress,
-          deliveryArea: orderData.deliveryArea,
-          items: orderData.items,
-          subtotal: orderData.subtotal,
-          deliveryFee: orderData.deliveryFee,
-          totalAmount: orderData.totalAmount,
-          notes: orderData.notes,
-          paymentMethod: orderData.paymentMethod,
-        }),
-      }).catch((e) => console.warn("Live order sync err:", e))
-    } catch (e) {
-      console.warn("Could not reach backend:", e)
-    }
-
-    setActiveOrder(newOrder)
-    setPastOrders((prev) => [newOrder, ...prev])
+  // Receive server-persisted OMS order from CartModal checkout
+  const handleCheckout = (serverOrder: any) => {
+    if (!serverOrder) return
+    setActiveOrder(serverOrder)
+    setPastOrders((prev) => [
+      serverOrder,
+      ...prev.filter(
+        (o) =>
+          o.id !== serverOrder.id &&
+          (!serverOrder.orderNumber || o.orderNumber !== serverOrder.orderNumber),
+      ),
+    ])
     setCartItems([])
-    setShowTrackingModal(true)
+    // Defer tracking modal open so CartModal completes dismissal cleanly on RN Fabric
+    setTimeout(() => setShowTrackingModal(true), 200)
   }
+
+  const handleOrderUpdated = useCallback((updatedOrder: any) => {
+    if (!updatedOrder) return
+    setActiveOrder((current: any) => {
+      if (!current) return updatedOrder
+      if (
+        current.id === updatedOrder.id ||
+        (current.orderNumber && current.orderNumber === updatedOrder.orderNumber)
+      ) {
+        return updatedOrder
+      }
+      return current
+    })
+    setPastOrders((prev) => {
+      const exists = prev.some(
+        (o) =>
+          o.id === updatedOrder.id ||
+          (updatedOrder.orderNumber && o.orderNumber === updatedOrder.orderNumber),
+      )
+      if (!exists) return [updatedOrder, ...prev]
+      return prev.map((o) =>
+        o.id === updatedOrder.id ||
+        (updatedOrder.orderNumber && o.orderNumber === updatedOrder.orderNumber)
+          ? updatedOrder
+          : o,
+      )
+    })
+  }, [])
 
   // Open Plate Builder with first rice dish
   const handleOpenPlateBuilder = () => {
-    const jollof = menuItems.find((i) => i.id === "rice-jollof" || i.name.toLowerCase().includes("jollof")) || menuItems[0]
+    const jollof =
+      menuItems.find(
+        (i) =>
+          i.slug === "smokey-jollof-rice" ||
+          i.id === "smokey-jollof-rice" ||
+          (i.name || "").toLowerCase().includes("jollof"),
+      ) || menuItems[0]
+    if (!jollof) return
     setSelectedItem(jollof)
     setShowDetailModal(true)
   }
 
-  const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0)
-  const cartSubtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
+  const totalCartCount = cartItems.reduce((sum, item) => sum + Number(item?.quantity || 0), 0)
+  const cartSubtotal = cartItems.reduce((sum, item) => sum + Number(item?.totalPrice || 0), 0)
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -388,31 +604,38 @@ export default function App() {
       )}
 
       {/* Floating Active Order Tracker Pill */}
-      {activeOrder && cartItems.length === 0 && (
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => setShowTrackingModal(true)}
-          style={[styles.floatingOrderPill, SHADOWS.floating]}
-        >
-          <View style={styles.floatingLeft}>
-            <View style={styles.orderStatusPulseContainer}>
-              <View style={styles.orderStatusDot} />
+      {activeOrder &&
+        !TERMINAL_ORDER_STATUSES.has(String(activeOrder.status || "").toUpperCase()) &&
+        cartItems.length === 0 && (
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => setShowTrackingModal(true)}
+            style={[styles.floatingOrderPill, SHADOWS.floating]}
+          >
+            <View style={styles.floatingLeft}>
+              <View style={styles.orderStatusPulseContainer}>
+                <View style={styles.orderStatusDot} />
+              </View>
+              <View>
+                <Text style={styles.floatingTitle}>
+                  Order #{activeOrder.orderNumber || activeOrder.trackingId || activeOrder.id}
+                </Text>
+                <Text style={styles.floatingEta}>
+                  ⚡ {String(activeOrder.status || "PLACED").replace(/_/g, " ")}
+                  {(activeOrder.fulfillmentType || activeOrder.fulfillmentMode) === "PICKUP" &&
+                  activeOrder.pickupToken
+                    ? ` · ${activeOrder.pickupToken}`
+                    : activeOrder.estimatedMinutes
+                      ? ` · ~${activeOrder.estimatedMinutes}m`
+                      : ""}
+                </Text>
+              </View>
             </View>
-            <View>
-              <Text style={styles.floatingTitle}>
-                Order #{activeOrder.trackingId || activeOrder.id}
-              </Text>
-              <Text style={styles.floatingEta}>
-                ⚡ {activeOrder.fulfillmentMode === "PICKUP" ? "Ready at Counter in ~" : "Arriving in ~"}
-                {activeOrder.estimatedMinutes || 10}m
-              </Text>
+            <View style={styles.trackCtaPill}>
+              <Text style={styles.trackCtaText}>TRACK ❯</Text>
             </View>
-          </View>
-          <View style={styles.trackCtaPill}>
-            <Text style={styles.trackCtaText}>TRACK ❯</Text>
-          </View>
-        </TouchableOpacity>
-      )}
+          </TouchableOpacity>
+        )}
 
       {/* Customizer Modal */}
       <MealDetailModal
@@ -420,6 +643,11 @@ export default function App() {
         visible={showDetailModal}
         onClose={() => setShowDetailModal(false)}
         onAddToCart={handleCustomizedAdd}
+        soups={addonCatalog.soups}
+        proteins={addonCatalog.proteins}
+        sides={addonCatalog.sides}
+        drinks={addonCatalog.drinks}
+        takeawayPack={addonCatalog.takeawayPack}
       />
 
       {/* Cart Tray Modal */}
@@ -432,10 +660,14 @@ export default function App() {
         currentAddress={currentAddress}
         fulfillmentMode={fulfillmentMode}
         onFulfillmentChange={setFulfillmentMode}
+        deliveryZones={deliveryZones}
+        selectedZoneId={selectedZoneId}
+        onSelectZoneId={setSelectedZoneId}
         currentUser={currentUser}
         onOpenAuth={() => {
           setShowCartModal(false)
-          setShowAuthModal(true)
+          // Allow CartModal to dismiss before presenting AuthModal on RN Fabric
+          setTimeout(() => setShowAuthModal(true), 180)
         }}
       />
 
@@ -444,6 +676,7 @@ export default function App() {
         visible={showTrackingModal}
         onClose={() => setShowTrackingModal(false)}
         order={activeOrder}
+        onOrderUpdated={handleOrderUpdated}
       />
 
       {/* User Login & Registration Modal */}
@@ -460,6 +693,11 @@ export default function App() {
         user={currentUser}
         onLogout={handleLogout}
         onReorder={handleReorder}
+        onTrackOrder={(ord) => {
+          setActiveOrder(ord)
+          setShowProfileModal(false)
+          setTimeout(() => setShowTrackingModal(true), 180)
+        }}
         pastOrders={pastOrders}
       />
 
@@ -468,23 +706,17 @@ export default function App() {
         <View style={styles.addressModalBackdrop}>
           <View style={[styles.addressModalCard, SHADOWS.card]}>
             <View style={styles.addressModalHeader}>
-              <Text style={styles.addressModalTitle}>Select Delivery Area</Text>
-              <Text style={styles.addressModalSub}>Express dispatch along Mowe corridor</Text>
+              <Text style={styles.addressModalTitle}>Select Delivery Corridor</Text>
+              <Text style={styles.addressModalSub}>Verified Mowe corridor zones & delivery fees</Text>
             </View>
-            {[
-              "Mowe, Assurance CDA Estate",
-              "Mowe Bus Stop / Expressway",
-              "Magboro Market / Gasline",
-              "Ibafo Police Station / Town",
-              "Arepo, Journalists Estate",
-              "OPIC Plaza / Berger Border",
-            ].map((addr) => {
-              const isSelected = currentAddress === addr
+            {deliveryZones.map((zone) => {
+              const isSelected = selectedZoneId === zone.id || currentAddress === zone.name
               return (
                 <TouchableOpacity
-                  key={addr}
+                  key={zone.id}
                   onPress={() => {
-                    setCurrentAddress(addr)
+                    setSelectedZoneId(zone.id)
+                    setCurrentAddress(zone.name)
                     setShowAddressPicker(false)
                   }}
                   style={[styles.addrRow, isSelected && styles.addrRowActive]}
@@ -492,7 +724,7 @@ export default function App() {
                 >
                   <Text style={styles.addrPin}>📍</Text>
                   <Text style={[styles.addrText, isSelected && styles.addrTextActive]}>
-                    {addr}
+                    {zone.name} (₦{Number(zone.deliveryFee || 0).toLocaleString()})
                   </Text>
                   {isSelected && <Text style={styles.addrCheck}>✓</Text>}
                 </TouchableOpacity>
@@ -509,6 +741,16 @@ export default function App() {
         </View>
       </Modal>
     </SafeAreaView>
+  )
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppErrorBoundary>
+        <AppScreen />
+      </AppErrorBoundary>
+    </SafeAreaProvider>
   )
 }
 
@@ -825,5 +1067,50 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     fontSize: 12,
     fontWeight: "700",
+  },
+  errorSafeArea: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  errorCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.cardBorderGold,
+  },
+  errorIcon: {
+    fontSize: 36,
+    marginBottom: 10,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: COLORS.white,
+    marginBottom: 8,
+  },
+  errorSub: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 18,
+  },
+  errorRetryBtn: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  errorRetryText: {
+    color: "#000000",
+    fontSize: 13,
+    fontWeight: "900",
   },
 })

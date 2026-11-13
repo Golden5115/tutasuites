@@ -31,7 +31,7 @@ export const MealCard: React.FC<MealCardProps> = ({
 
         {/* Preparation Time Pill */}
         <View style={styles.prepTimeBadge}>
-          <Text style={styles.prepTimeText}>⏱ {item.prepTime.split(" ")[0]}m</Text>
+          <Text style={styles.prepTimeText}>⏱ {(item.prepTime || "5 mins").split(" ")[0]}m</Text>
         </View>
 
         {/* Rating / Popular Tag */}
@@ -57,7 +57,7 @@ export const MealCard: React.FC<MealCardProps> = ({
         <View style={styles.bottomRow}>
           <View style={styles.priceContainer}>
             <Text style={styles.currencySymbol}>₦</Text>
-            <Text style={styles.price}>{item.price.toLocaleString()}</Text>
+            <Text style={styles.price}>{Number(item.price || 0).toLocaleString()}</Text>
             <Text style={styles.perPortionText}>/portion</Text>
           </View>
 

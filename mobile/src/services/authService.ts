@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import { ENDPOINTS } from "../constants/config";
 
@@ -30,7 +30,7 @@ const SECURE_KEYS = {
 } as const;
 
 const memoryVault = new Map<string, string>();
-const FALLBACK_SESSION_FILE = `${(FileSystem as any).documentDirectory || ""}tuta_auth_vault.json`;
+let vaultWriteQueue: Promise<void> = Promise.resolve();
 
 let inMemoryAccessToken: string | null = null;
 let inMemoryAccessExpiresAt: number = 0;
@@ -38,13 +38,43 @@ let inMemoryRefreshToken: string | null = null;
 let inMemoryUser: AuthenticatedCustomer | null = null;
 let activeRefreshPromise: Promise<AuthSessionPayload | null> | null = null;
 
+export function sanitizeCustomerProfile(raw: any): AuthenticatedCustomer {
+  const email = typeof raw?.email === "string" ? raw.email.trim() : "";
+  const phone = typeof raw?.phone === "string" ? raw.phone.trim() : "";
+  const fallbackName = email ? email.split("@")[0] : phone || "Tuta Customer";
+  const name =
+    typeof raw?.name === "string" && raw.name.trim().length > 0
+      ? raw.name.trim()
+      : fallbackName;
+
+  return {
+    id: String(raw?.id || `cust_${Date.now()}`),
+    name,
+    email,
+    phone,
+    address:
+      typeof raw?.address === "string" && raw.address.trim().length > 0
+        ? raw.address.trim()
+        : "Mowe, Assurance CDA Estate",
+    emailVerified:
+      typeof raw?.emailVerified === "boolean" ? raw.emailVerified : undefined,
+    googleLinked:
+      typeof raw?.googleLinked === "boolean" ? raw.googleLinked : undefined,
+    createdAt: typeof raw?.createdAt === "string" ? raw.createdAt : undefined,
+  };
+}
+
 function getNativeSecureStore(): any | null {
   if (Platform.OS === "web") return null;
   try {
-    // Dynamic require prevents crash in Expo Go if native module wasn't loaded before Metro restart
+    // Dynamic require prevents crash if native module isn't linked in current runtime
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("expo-secure-store");
-    if (mod && typeof mod.setItemAsync === "function") {
+    if (
+      mod &&
+      typeof mod.setItemAsync === "function" &&
+      typeof mod.getItemAsync === "function"
+    ) {
       return mod;
     }
     return null;
@@ -53,15 +83,27 @@ function getNativeSecureStore(): any | null {
   }
 }
 
+function getFallbackVaultFile(): File | null {
+  if (Platform.OS === "web") return null;
+  try {
+    if (typeof File !== "function" || !Paths?.document) {
+      return null;
+    }
+    return new File(Paths.document, "tuta_auth_vault.json");
+  } catch {
+    return null;
+  }
+}
+
 async function readFallbackFileVault(): Promise<Record<string, string>> {
   try {
-    if (Platform.OS === "web" || !(FileSystem as any).documentDirectory) {
+    const file = getFallbackVaultFile();
+    if (!file || !file.exists) {
       return {};
     }
-    const info = await FileSystem.getInfoAsync(FALLBACK_SESSION_FILE);
-    if (!info.exists) return {};
-    const raw = await FileSystem.readAsStringAsync(FALLBACK_SESSION_FILE);
-    return JSON.parse(raw) || {};
+    const raw = await file.text();
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
   }
@@ -69,38 +111,50 @@ async function readFallbackFileVault(): Promise<Record<string, string>> {
 
 async function writeFallbackFileVault(data: Record<string, string>): Promise<void> {
   try {
-    if (Platform.OS === "web" || !(FileSystem as any).documentDirectory) {
-      return;
+    const file = getFallbackVaultFile();
+    if (!file) return;
+    if (!file.exists) {
+      file.create({ intermediates: true, overwrite: true });
     }
-    await FileSystem.writeAsStringAsync(FALLBACK_SESSION_FILE, JSON.stringify(data));
+    await file.write(JSON.stringify(data));
   } catch {
-    // Ignore file write errors
+    // Ignore non-fatal file vault write errors
   }
 }
 
+function enqueueVaultMutation(task: () => Promise<void>): Promise<void> {
+  const next = vaultWriteQueue.then(task, task);
+  vaultWriteQueue = next.catch(() => {});
+  return next;
+}
+
 async function setSecureItem(key: string, value: string): Promise<void> {
-  memoryVault.set(key, value);
+  const safeVal = typeof value === "string" ? value : String(value ?? "");
+  memoryVault.set(key, safeVal);
 
   if (Platform.OS === "web") {
     try {
-      (globalThis as any).localStorage?.setItem(key, value);
+      (globalThis as any).localStorage?.setItem(key, safeVal);
     } catch {}
     return;
   }
 
   const secureStore = getNativeSecureStore();
-  if (secureStore) {
+  // Android Keystore enforces a ~2048-byte limit per item; keep oversized blobs in file vault
+  if (secureStore && safeVal.length <= 1800) {
     try {
-      await secureStore.setItemAsync(key, value);
+      await secureStore.setItemAsync(key, safeVal);
       return;
     } catch {
-      // Fall through to app-private FileSystem vault if Expo Go SecureStore throws
+      // Fall through to app-private FileSystem vault if SecureStore throws
     }
   }
 
-  const vault = await readFallbackFileVault();
-  vault[key] = value;
-  await writeFallbackFileVault(vault);
+  await enqueueVaultMutation(async () => {
+    const vault = await readFallbackFileVault();
+    vault[key] = safeVal;
+    await writeFallbackFileVault(vault);
+  });
 }
 
 async function getSecureItem(key: string): Promise<string | null> {
@@ -151,11 +205,13 @@ async function deleteSecureItem(key: string): Promise<void> {
     } catch {}
   }
 
-  const vault = await readFallbackFileVault();
-  if (key in vault) {
-    delete vault[key];
-    await writeFallbackFileVault(vault);
-  }
+  await enqueueVaultMutation(async () => {
+    const vault = await readFallbackFileVault();
+    if (key in vault) {
+      delete vault[key];
+      await writeFallbackFileVault(vault);
+    }
+  });
 }
 
 /**
@@ -164,21 +220,21 @@ async function deleteSecureItem(key: string): Promise<void> {
  */
 export async function saveAuthSession(session: AuthSessionPayload): Promise<void> {
   try {
+    const safeUser = sanitizeCustomerProfile(session.user);
     inMemoryAccessToken = session.accessToken;
     inMemoryAccessExpiresAt =
       new Date(session.accessTokenExpiresAt).getTime() ||
       Date.now() + 15 * 60 * 1000;
     inMemoryRefreshToken = session.refreshToken;
-    inMemoryUser = session.user;
+    inMemoryUser = safeUser;
 
-    await Promise.all([
-      setSecureItem(SECURE_KEYS.ACCESS_TOKEN, session.accessToken),
-      setSecureItem(SECURE_KEYS.ACCESS_EXPIRES_AT, session.accessTokenExpiresAt),
-      setSecureItem(SECURE_KEYS.REFRESH_TOKEN, session.refreshToken),
-      setSecureItem(SECURE_KEYS.REFRESH_EXPIRES_AT, session.refreshTokenExpiresAt),
-      setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(session.user)),
-    ]);
-    console.log("[AUTH] Session saved securely for:", session.user.email || session.user.phone);
+    // Persist sequentially to avoid native keystore / file-lock contention
+    await setSecureItem(SECURE_KEYS.ACCESS_TOKEN, session.accessToken);
+    await setSecureItem(SECURE_KEYS.ACCESS_EXPIRES_AT, session.accessTokenExpiresAt);
+    await setSecureItem(SECURE_KEYS.REFRESH_TOKEN, session.refreshToken);
+    await setSecureItem(SECURE_KEYS.REFRESH_EXPIRES_AT, session.refreshTokenExpiresAt);
+    await setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(safeUser));
+    console.log("[AUTH] Session saved securely for:", safeUser.email || safeUser.phone);
   } catch (err) {
     console.warn("[AUTH] Non-fatal storage warning:", err);
   }
@@ -191,8 +247,9 @@ export async function updateStoredCustomerProfile(
   user: AuthenticatedCustomer
 ): Promise<void> {
   try {
-    inMemoryUser = user;
-    await setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(user));
+    const safeUser = sanitizeCustomerProfile(user);
+    inMemoryUser = safeUser;
+    await setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(safeUser));
   } catch {}
 }
 
@@ -229,6 +286,11 @@ export async function rotateSessionTokens(): Promise<AuthSessionPayload | null> 
 
       if (!refreshToken) {
         await clearAuthSession();
+        return null;
+      }
+
+      // Skip server rotation when using a local offline fallback token
+      if (refreshToken.startsWith("rt_")) {
         return null;
       }
 
@@ -319,7 +381,10 @@ export async function restoreCustomerSession(): Promise<AuthenticatedCustomer | 
     let cachedUser: AuthenticatedCustomer | null = null;
     if (storedUserJson) {
       try {
-        cachedUser = JSON.parse(storedUserJson);
+        const parsed = JSON.parse(storedUserJson);
+        if (parsed && typeof parsed === "object") {
+          cachedUser = sanitizeCustomerProfile(parsed);
+        }
       } catch {
         cachedUser = null;
       }

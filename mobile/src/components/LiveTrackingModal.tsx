@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import {
   View,
   Text,
@@ -7,122 +7,220 @@ import {
   TouchableOpacity,
   ScrollView,
   Linking,
-  SafeAreaView,
+  AppState,
+  Alert,
+  ActivityIndicator,
+  Platform,
 } from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar"
 import { COLORS, SHADOWS } from "../constants/theme"
 import { ENDPOINTS } from "../constants/config"
+import { authenticatedFetch } from "../services/authService"
 
 interface LiveTrackingModalProps {
   visible: boolean
   onClose: () => void
   order: any
+  onOrderUpdated?: (updatedOrder: any) => void
 }
 
 const DELIVERY_STAGES = [
-  { key: "PLACED", title: "Order Confirmed", subtitle: "Tuta Kitchen accepted your order", icon: "✓" },
-  { key: "PREPARING", title: "Cooking Fresh", subtitle: "Chef firing wok, grill & packaging", icon: "🍳" },
-  { key: "RIDER_PICKED", title: "Dispatched", subtitle: "Picked up from Tuta Suites HQ", icon: "📦" },
-  { key: "IN_TRANSIT", title: "Rider En Route", subtitle: "Cruising along Mowe corridor to you", icon: "🏍" },
-  { key: "DELIVERED", title: "Delivered", subtitle: "Handed over warm at your doorstep", icon: "🎉" },
+  { key: "PLACED", title: "Order Confirmed", subtitle: "Received in Tuta Kitchen queue", icon: "✓" },
+  { key: "ACCEPTED", title: "Kitchen Accepted", subtitle: "Chefs confirmed your ticket & ETA", icon: "👨‍🍳" },
+  { key: "PREPARING", title: "Cooking Fresh", subtitle: "Preparing & sealing your plate", icon: "🍳" },
+  { key: "READY", title: "Packed & Ready", subtitle: "Waiting at dispatch counter for rider", icon: "📦" },
+  { key: "OUT_FOR_DELIVERY", title: "Out for Delivery", subtitle: "Assigned rider heading along Mowe corridor", icon: "🏍" },
+  { key: "COMPLETED", title: "Delivered", subtitle: "Handed over warm at your doorstep", icon: "🎉" },
 ]
 
 const PICKUP_STAGES = [
-  { key: "PLACED", title: "Order Confirmed", subtitle: "Tuta Kitchen received your order", icon: "✓" },
-  { key: "PREPARING", title: "Chef Preparing Meal", subtitle: "Cooking fresh & sealing in thermal pack", icon: "🍳" },
-  { key: "READY", title: "Ready for Pickup", subtitle: "Waiting at Tuta Express Counter lobby", icon: "🛍️" },
-  { key: "COLLECTED", title: "Collected", subtitle: "Handed to customer • Enjoy your meal!", icon: "🎉" },
+  { key: "PLACED", title: "Order Confirmed", subtitle: "Received in Tuta Kitchen queue", icon: "✓" },
+  { key: "ACCEPTED", title: "Kitchen Accepted", subtitle: "Chefs confirmed your pickup order", icon: "👨‍🍳" },
+  { key: "PREPARING", title: "Chef Preparing Meal", subtitle: "Cooking fresh & sealing thermal pack", icon: "🍳" },
+  { key: "READY", title: "Ready for Counter Pickup", subtitle: "Show your #TGG pickup code at counter", icon: "🛍️" },
+  { key: "COMPLETED", title: "Collected", subtitle: "Handed to customer • Enjoy your meal!", icon: "🎉" },
 ]
+
+const TERMINAL_STATUSES = new Set(["COMPLETED", "REJECTED", "CANCELLED", "REFUNDED"])
+
+function mapStatusToStageIndex(status: string, isPickup: boolean): number {
+  const s = (status || "").toUpperCase()
+  if (s === "PENDING_PAYMENT" || s === "PAYMENT_REVIEW" || s === "PLACED") return 0
+  if (s === "ACCEPTED") return 1
+  if (s === "PREPARING") return 2
+  if (s === "READY") return 3
+  if (s === "OUT_FOR_DELIVERY") return isPickup ? 3 : 4
+  if (s === "COMPLETED") return isPickup ? 4 : 5
+  return -1
+}
+
+function formatRealEtaLabel(order: any, isPickup: boolean): string {
+  const s = (order?.status || "").toUpperCase()
+  if (s === "COMPLETED") return isPickup ? "Collected" : "Delivered"
+  if (s === "REJECTED") return "Rejected"
+  if (s === "CANCELLED") return "Cancelled"
+  if (s === "REFUND_PENDING" || s === "REFUNDED") return "Refund"
+  if (s === "PAYMENT_REVIEW") return "Awaiting Payment Review"
+  if (s === "PENDING_PAYMENT") return "Awaiting Payment"
+
+  const targetIso = isPickup ? order?.estimatedReadyAt : order?.estimatedDeliveryAt || order?.estimatedReadyAt
+  if (targetIso) {
+    const mins = Math.max(1, Math.round((new Date(targetIso).getTime() - Date.now()) / 60000))
+    return `~${mins} mins`
+  }
+  if (order?.estimatedPrepMinutes) {
+    return `~${order.estimatedPrepMinutes} mins`
+  }
+  return "Awaiting Kitchen ETA"
+}
 
 export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
   visible,
   onClose,
   order,
+  onOrderUpdated,
 }) => {
-  if (!order) return null
+  const [liveOrder, setLiveOrder] = useState<any>(order)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [isPolling, setIsPolling] = useState(false)
+  const inFlightRef = useRef(false)
 
-  const isPickup = (order.fulfillmentMode || order.orderType) === "PICKUP" || order.orderType === "TAKEAWAY"
-  const stages = isPickup ? PICKUP_STAGES : DELIVERY_STAGES
-
-  const [currentStageIdx, setCurrentStageIdx] = useState(0) // Starts at Order Confirmed
-  const [countdownMinutes, setCountdownMinutes] = useState(order.estimatedMinutes || (isPickup ? 8 : 22))
-
-  // 1. Hands-free countdown timer
   useEffect(() => {
-    if (!visible) return
-    const interval = setInterval(() => {
-      setCountdownMinutes((prev: number) => Math.max(1, prev - 1))
-    }, 60000)
-    return () => clearInterval(interval)
-  }, [visible])
+    setLiveOrder(order)
+  }, [order])
 
-  // 2. Automated hands-free kitchen progression
-  useEffect(() => {
-    if (!visible) return
+  const pollServer = useCallback(async () => {
+    const target = liveOrder || order
+    if (!visible || !target) return
+    const currentStatus = String(target.status || "").toUpperCase()
+    if (TERMINAL_STATUSES.has(currentStatus)) return
+    if (inFlightRef.current) return
 
-    // Auto-advance to "Cooking Fresh" after 12 seconds
-    const t1 = setTimeout(() => {
-      setCurrentStageIdx((prev) => Math.max(prev, 1))
-    }, 12000)
+    const lookupId = target.id || target.orderNumber || target.trackingId
+    if (!lookupId && !target.trackingToken) return
 
-    // Auto-advance to "Ready for Pickup / In Transit" after 45 seconds
-    const t2 = setTimeout(() => {
-      setCurrentStageIdx((prev) => Math.max(prev, 2))
-    }, 45000)
-
-    // Auto-advance to "Collected / Delivered" when complete
-    const t3 = setTimeout(() => {
-      setCurrentStageIdx(stages.length - 1)
-    }, 120000)
-
-    return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
-      clearTimeout(t3)
-    }
-  }, [visible, stages.length])
-
-  // 3. Live Server Polling: polls backend every 8s for kitchen status updates
-  useEffect(() => {
-    if (!visible || !order) return
-    const trackingId = order.trackingId || order.id
-
-    const pollServer = async () => {
-      try {
-        const res = await fetch(`${ENDPOINTS.orders}?trackingId=${trackingId}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data.order && data.order.status) {
-            const st = data.order.status.toUpperCase()
-            if (st === "PLACED" || st === "PENDING") setCurrentStageIdx(0)
-            else if (st === "PREPARING" || st === "COOKING") setCurrentStageIdx(1)
-            else if (st === "READY" || st === "RIDER_PICKED" || st === "DISPATCHED") setCurrentStageIdx(2)
-            else if (st === "IN_TRANSIT") setCurrentStageIdx(3)
-            else if (st === "DELIVERED" || st === "COLLECTED" || st === "COMPLETED") {
-              setCurrentStageIdx(stages.length - 1)
-            }
-          }
+    inFlightRef.current = true
+    setIsPolling(true)
+    try {
+      const url = lookupId
+        ? ENDPOINTS.orderById(lookupId)
+        : ENDPOINTS.orderByTrackingToken(target.trackingToken)
+      const res = await authenticatedFetch(url)
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (data?.order) {
+          setLiveOrder(data.order)
+          onOrderUpdated?.(data.order)
         }
-      } catch {
-        // Fallback gracefully
       }
+    } catch {
+      // Transient connectivity issue — keeps current verified server snapshot
+    } finally {
+      inFlightRef.current = false
+      setIsPolling(false)
     }
+  }, [visible, liveOrder, order, onOrderUpdated])
 
-    const interval = setInterval(pollServer, 8000)
-    pollServer()
+  // Real-time guarded backend polling (stops on terminal states)
+  useEffect(() => {
+    if (!visible || !liveOrder) return
+    const status = String(liveOrder.status || "").toUpperCase()
+    if (TERMINAL_STATUSES.has(status)) return
+
+    void pollServer()
+    const interval = setInterval(() => {
+      void pollServer()
+    }, 8000)
     return () => clearInterval(interval)
-  }, [visible, order, stages.length])
+  }, [visible, liveOrder?.id, liveOrder?.status, pollServer])
+
+  // Refresh immediately when app returns to foreground
+  useEffect(() => {
+    if (!visible) return
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void pollServer()
+      }
+    })
+    return () => sub.remove()
+  }, [visible, pollServer])
+
+  if (!liveOrder) return null
+
+  const activeData = liveOrder
+  const isPickup =
+    activeData.fulfillmentType === "PICKUP" ||
+    activeData.fulfillmentMode === "PICKUP" ||
+    activeData.orderType === "TAKEAWAY"
+  const stages = isPickup ? PICKUP_STAGES : DELIVERY_STAGES
+  const normalizedStatus = String(activeData.status || "PLACED").toUpperCase()
+  const currentStageIdx = mapStatusToStageIndex(normalizedStatus, isPickup)
+  const isExceptionStatus =
+    normalizedStatus === "REJECTED" ||
+    normalizedStatus === "CANCELLED" ||
+    normalizedStatus === "REFUND_PENDING" ||
+    normalizedStatus === "REFUNDED"
+  const isCancelableByCustomer =
+    normalizedStatus === "PENDING_PAYMENT" ||
+    normalizedStatus === "PAYMENT_REVIEW" ||
+    normalizedStatus === "PLACED"
+  const etaLabel = formatRealEtaLabel(activeData, isPickup)
+  const assignment = activeData.assignment || null
+  const displayOrderNumber = activeData.orderNumber || activeData.trackingId || activeData.id
 
   const handleCall = (phone: string = "07075733866") => {
     Linking.openURL(`tel:${phone}`)
   }
 
-  const handleWhatsAppRider = () => {
-    const text = `Hello Babatunde, regarding my Tuta Grab & Go order #${order.trackingId || order.id}...`
-    Linking.openURL(`https://wa.me/2347075733866?text=${encodeURIComponent(text)}`)
+  const handleWhatsAppRider = (phone: string, riderName: string) => {
+    const cleanPhone = phone.replace(/[^0-9]/g, "")
+    const intlPhone = cleanPhone.startsWith("0") ? `234${cleanPhone.slice(1)}` : cleanPhone
+    const text = `Hello ${riderName}, regarding my Tuta Grab & Go order ${displayOrderNumber}...`
+    Linking.openURL(`https://wa.me/${intlPhone}?text=${encodeURIComponent(text)}`)
   }
 
-  const currentStage = stages[Math.min(currentStageIdx, stages.length - 1)]
+  const handleRequestCancel = () => {
+    Alert.alert(
+      "Cancel Order?",
+      `Are you sure you want to cancel order ${displayOrderNumber}? This cannot be undone.`,
+      [
+        { text: "Keep Order", style: "cancel" },
+        {
+          text: "Cancel Order",
+          style: "destructive",
+          onPress: async () => {
+            setIsCancelling(true)
+            try {
+              const targetId = activeData.id || displayOrderNumber
+              const res = await authenticatedFetch(ENDPOINTS.orderCancel(targetId), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason: "Cancelled by customer via mobile app" }),
+              })
+              const data = await res.json().catch(() => ({}))
+              if (!res.ok || !data?.order) {
+                Alert.alert(
+                  "Cannot Cancel Order",
+                  data?.error || "Kitchen has already started preparing your meal.",
+                )
+                return
+              }
+              setLiveOrder(data.order)
+              onOrderUpdated?.(data.order)
+            } catch {
+              Alert.alert("Network Error", "Could not reach server to cancel order.")
+            } finally {
+              setIsCancelling(false)
+            }
+          },
+        },
+      ],
+    )
+  }
+
+  const currentStage =
+    currentStageIdx >= 0 ? stages[Math.min(currentStageIdx, stages.length - 1)] : null
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
@@ -139,49 +237,88 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
             <Text style={styles.headerEyebrow}>
               {isPickup ? "EXPRESS COUNTER PICKUP" : "EXPRESS DELIVERY"}
             </Text>
-            <Text style={styles.headerTitle}>Order #{order.trackingId || order.id}</Text>
+            <Text style={styles.headerTitle}>Order {displayOrderNumber}</Text>
           </View>
 
-          <View style={styles.liveBadge}>
-            <View style={styles.livePulseDot} />
-            <Text style={styles.liveBadgeText}>LIVE</Text>
-          </View>
+          <TouchableOpacity
+            onPress={() => void pollServer()}
+            style={styles.liveBadge}
+            activeOpacity={0.8}
+          >
+            <View
+              style={[
+                styles.livePulseDot,
+                TERMINAL_STATUSES.has(normalizedStatus) && { backgroundColor: COLORS.textMuted },
+              ]}
+            />
+            <Text style={styles.liveBadgeText}>{isPolling ? "SYNC..." : "LIVE"}</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
+          {/* PAYMENT REVIEW / PENDING PAYMENT / REJECTION / CANCELLATION NOTICE */}
+          {(normalizedStatus === "PAYMENT_REVIEW" ||
+            normalizedStatus === "PENDING_PAYMENT" ||
+            isExceptionStatus) && (
+            <View style={[styles.exceptionCard, isExceptionStatus && styles.exceptionCardAlert]}>
+              <Text style={styles.exceptionTitle}>
+                {normalizedStatus === "PAYMENT_REVIEW"
+                  ? "⏳ Verifying Bank Transfer"
+                  : normalizedStatus === "PENDING_PAYMENT"
+                    ? "💳 Payment Required"
+                    : `Order ${normalizedStatus.replace(/_/g, " ")}`}
+              </Text>
+              <Text style={styles.exceptionBody}>
+                {normalizedStatus === "PAYMENT_REVIEW"
+                  ? "Our counter cashier is confirming your bank transfer. Kitchen preparation begins immediately upon verification."
+                  : normalizedStatus === "PENDING_PAYMENT"
+                    ? "Complete your payment so the kitchen can receive your order."
+                    : activeData.rejectedReason ||
+                      activeData.cancelledReason ||
+                      "This order is no longer active."}
+              </Text>
+            </View>
+          )}
+
           {/* PICKUP DIGITAL PASS / COUNTER TOKEN */}
           {isPickup ? (
             <View style={[styles.pickupPassCard, SHADOWS.card]}>
               <View style={styles.passHeader}>
                 <View>
                   <Text style={styles.passLabel}>DIGITAL PICKUP PASS</Text>
-                  <Text style={styles.passSub}>Show this token at the Express Counter</Text>
+                  <Text style={styles.passSub}>Present this daily token at Express Counter</Text>
                 </View>
                 <View style={styles.passCrownBadge}>
-                  <Text style={styles.passCrownText}>👑 TUTA VIP</Text>
+                  <Text style={styles.passCrownText}>
+                    {activeData.paymentStatus === "PAID" ? "✓ PAID" : activeData.paymentStatus || "UNPAID"}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.tokenHighlightBox}>
-                <Text style={styles.tokenLabel}>TOKEN NUMBER</Text>
-                <Text style={styles.tokenNumber}>#{order.trackingId || order.id}</Text>
+                <Text style={styles.tokenLabel}>COUNTER PICKUP CODE</Text>
+                <Text style={styles.tokenNumber}>
+                  {activeData.pickupToken || displayOrderNumber}
+                </Text>
                 <View style={styles.tokenStatusBadge}>
-                  <Text style={styles.tokenStatusText}>{currentStage.title.toUpperCase()}</Text>
+                  <Text style={styles.tokenStatusText}>
+                    {currentStage ? currentStage.title.toUpperCase() : normalizedStatus.replace(/_/g, " ")}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.pickupEtaRow}>
                 <View>
-                  <Text style={styles.pickupEtaTitle}>Estimated Counter Ready</Text>
-                  <Text style={styles.pickupEtaSub}>Hot from the kitchen</Text>
+                  <Text style={styles.pickupEtaTitle}>Kitchen Target Ready</Text>
+                  <Text style={styles.pickupEtaSub}>Backed by live kitchen queue</Text>
                 </View>
-                <Text style={styles.pickupEtaValue}>~{countdownMinutes} mins</Text>
+                <Text style={styles.pickupEtaValue}>{etaLabel}</Text>
               </View>
 
               {/* Progress Segments */}
               <View style={styles.progressBar}>
                 {stages.map((s, idx) => {
-                  const isPassed = idx <= currentStageIdx
+                  const isPassed = currentStageIdx >= 0 && idx <= currentStageIdx
                   const isCurrent = idx === currentStageIdx
                   return (
                     <View
@@ -196,7 +333,6 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
                 })}
               </View>
 
-              {/* Counter Location */}
               <View style={styles.counterLocationCard}>
                 <View style={styles.counterIconBox}>
                   <Text style={styles.counterIcon}>🏨</Text>
@@ -212,7 +348,7 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
                 style={styles.callCounterBtn}
                 activeOpacity={0.85}
               >
-                <Text style={styles.callCounterText}>📞 Call Front Desk / Kitchen (07075733866)</Text>
+                <Text style={styles.callCounterText}>📞 Call Kitchen Counter (07075733866)</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -221,21 +357,23 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
               <View style={styles.etaHeaderRow}>
                 <View>
                   <Text style={styles.etaMicroLabel}>ESTIMATED DELIVERY</Text>
-                  <Text style={styles.etaLargeValue}>⚡ {countdownMinutes} mins</Text>
+                  <Text style={styles.etaLargeValue}>{etaLabel}</Text>
                 </View>
                 <View style={styles.statusPill}>
-                  <Text style={styles.statusPillText}>{currentStage.title}</Text>
+                  <Text style={styles.statusPillText}>
+                    {currentStage ? currentStage.title : normalizedStatus.replace(/_/g, " ")}
+                  </Text>
                 </View>
               </View>
 
-              <Text style={styles.etaDeliveringTo} numberOfLines={1}>
-                📍 Delivering to: {order.deliveryAddress || "Mowe, Ogun State"}
+              <Text style={styles.etaDeliveringTo} numberOfLines={2}>
+                📍 {activeData.deliveryZoneName ? `${activeData.deliveryZoneName} — ` : ""}
+                {activeData.deliveryAddress || "Mowe, Ogun State"}
               </Text>
 
-              {/* Progress Bar */}
               <View style={styles.progressBar}>
                 {stages.map((s, idx) => {
-                  const isPassed = idx <= currentStageIdx
+                  const isPassed = currentStageIdx >= 0 && idx <= currentStageIdx
                   const isCurrent = idx === currentStageIdx
                   return (
                     <View
@@ -252,171 +390,167 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
             </View>
           )}
 
-          {/* DELIVERY ROUTE CORRIDOR MAP GRAPHIC (If delivery) */}
-          {!isPickup && (
-            <View style={[styles.mapCard, SHADOWS.card]}>
-              <View style={styles.mapHeaderRow}>
-                <Text style={styles.mapTitle}>MOWE HIGHWAY CORRIDOR</Text>
-                <Text style={styles.mapDistance}>4.2 km • Express Transit</Text>
-              </View>
-
-              <View style={styles.routeCanvas}>
-                {/* Kitchen Origin */}
-                <View style={styles.routePoint}>
-                  <View style={styles.routePointIconBox}>
-                    <Text style={styles.routePointEmoji}>🏨</Text>
+          {/* REAL ASSIGNED RIDER CARD (Or Unassigned Pending Dispatch — Zero Placeholder Rider) */}
+          {!isPickup && !isExceptionStatus && (
+            assignment ? (
+              <View style={[styles.riderCard, SHADOWS.card]}>
+                <View style={styles.riderHeader}>
+                  <View style={styles.riderAvatar}>
+                    <Text style={styles.riderAvatarText}>
+                      {String(assignment.riderName || "TR").slice(0, 2).toUpperCase()}
+                    </Text>
                   </View>
-                  <View>
-                    <Text style={styles.routePointTitle}>Tuta Suites Hotel Kitchen</Text>
-                    <Text style={styles.routePointSub}>No 3 Assurance CDA, Orimerunmu</Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.riderNameRow}>
+                      <Text style={styles.riderName}>{assignment.riderName}</Text>
+                      <View style={styles.riderRatingPill}>
+                        <Text style={styles.riderRatingText}>ASSIGNED</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.riderVehicle}>
+                      {assignment.vehicleInfo || "Tuta Express Dispatch Bike"}
+                    </Text>
+                    <Text style={styles.riderDeliveries}>Phone: {assignment.riderPhone}</Text>
                   </View>
                 </View>
 
-                {/* Vertical Corridor Line */}
-                <View style={styles.corridorLineContainer}>
-                  <View style={styles.corridorTrack} />
-                  <View
-                    style={[
-                      styles.riderPillMarker,
-                      { top: `${Math.min(75, 15 + currentStageIdx * 18)}%` as any },
-                    ]}
+                <View style={styles.riderActions}>
+                  <TouchableOpacity
+                    onPress={() => handleCall(assignment.riderPhone)}
+                    style={styles.riderCallBtn}
+                    activeOpacity={0.85}
                   >
-                    <Text style={styles.riderPillEmoji}>🏍</Text>
-                    <View style={styles.riderPillBadge}>
-                      <Text style={styles.riderPillText}>Rider Moving</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Customer Destination */}
-                <View style={styles.routePoint}>
-                  <View style={[styles.routePointIconBox, styles.destIconBox]}>
-                    <Text style={styles.routePointEmoji}>📍</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.routePointTitle}>Your Delivery Address</Text>
-                    <Text style={styles.routePointSub}>{order.deliveryAddress || "Mowe"}</Text>
-                  </View>
+                    <Text style={styles.riderCallText}>📞 Call Rider</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleWhatsAppRider(assignment.riderPhone, assignment.riderName)}
+                    style={styles.riderWaBtn}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.riderWaText}>💬 WhatsApp Rider</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-            </View>
-          )}
-
-          {/* RIDER PROFILE CARD (If delivery) */}
-          {!isPickup && (
-            <View style={[styles.riderCard, SHADOWS.card]}>
-              <View style={styles.riderHeader}>
-                <View style={styles.riderAvatar}>
-                  <Text style={styles.riderAvatarText}>BK</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.riderNameRow}>
-                    <Text style={styles.riderName}>Babatunde K.</Text>
-                    <View style={styles.riderRatingPill}>
-                      <Text style={styles.riderRatingText}>★ 4.9</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.riderVehicle}>Bajaj Boxer 150 • Thermal Hot-Box</Text>
-                  <Text style={styles.riderDeliveries}>184 deliveries completed with care</Text>
-                </View>
+            ) : (
+              <View style={[styles.riderCard, SHADOWS.card]}>
+                <Text style={styles.riderPendingTitle}>🛵 Rider Assignment Pending</Text>
+                <Text style={styles.riderDeliveries}>
+                  A verified Tuta Express dispatcher will assign a rider as soon as your meal is packed and ready.
+                </Text>
               </View>
-
-              <View style={styles.riderActions}>
-                <TouchableOpacity
-                  onPress={() => handleCall("07075733866")}
-                  style={styles.riderCallBtn}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.riderCallText}>📞 Call Babatunde</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleWhatsAppRider}
-                  style={styles.riderWaBtn}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.riderWaText}>💬 WhatsApp Rider</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+            )
           )}
 
           {/* TIMELINE MILESTONES */}
-          <View style={[styles.timelineCard, SHADOWS.card]}>
-            <Text style={styles.timelineHeader}>KITCHEN & DISPATCH PROGRESS</Text>
-            {stages.map((s, idx) => {
-              const isPassed = idx <= currentStageIdx
-              const isCurrent = idx === currentStageIdx
-              return (
-                <View key={s.key} style={styles.timelineItem}>
-                  <View
-                    style={[
-                      styles.timelineCircle,
-                      isPassed && styles.timelineCirclePassed,
-                      isCurrent && styles.timelineCircleCurrent,
-                    ]}
-                  >
-                    <Text style={styles.timelineCircleText}>{s.icon}</Text>
-                  </View>
-                  <View style={styles.timelineInfo}>
-                    <Text
+          {!isExceptionStatus && (
+            <View style={[styles.timelineCard, SHADOWS.card]}>
+              <Text style={styles.timelineHeader}>LIVE KITCHEN &amp; DISPATCH PROGRESS</Text>
+              {stages.map((s, idx) => {
+                const isPassed = currentStageIdx >= 0 && idx <= currentStageIdx
+                const isCurrent = idx === currentStageIdx
+                return (
+                  <View key={s.key} style={styles.timelineItem}>
+                    <View
                       style={[
-                        styles.timelineStageTitle,
-                        isCurrent && styles.timelineStageTitleCurrent,
+                        styles.timelineCircle,
+                        isPassed && styles.timelineCirclePassed,
+                        isCurrent && styles.timelineCircleCurrent,
                       ]}
                     >
-                      {s.title}
-                    </Text>
-                    <Text style={styles.timelineStageSubtitle}>{s.subtitle}</Text>
+                      <Text style={styles.timelineCircleText}>{s.icon}</Text>
+                    </View>
+                    <View style={styles.timelineInfo}>
+                      <Text
+                        style={[
+                          styles.timelineStageTitle,
+                          isCurrent && styles.timelineStageTitleCurrent,
+                        ]}
+                      >
+                        {s.title}
+                      </Text>
+                      <Text style={styles.timelineStageSubtitle}>{s.subtitle}</Text>
+                    </View>
+                    {isPassed && <Text style={styles.timelineCheckmark}>✓</Text>}
                   </View>
-                  {isPassed && <Text style={styles.timelineCheckmark}>✓</Text>}
-                </View>
-              )
-            })}
-          </View>
+                )
+              })}
+            </View>
+          )}
 
           {/* ORDER ITEMS SUMMARY */}
           <View style={[styles.summaryCard, SHADOWS.card]}>
             <View style={styles.summaryTopRow}>
               <Text style={styles.summaryTitle}>ORDER BREAKDOWN</Text>
               <Text style={styles.summaryFulfillmentTag}>
-                {isPickup ? "🛍️ Express Pickup" : "🛵 Corridor Delivery"}
+                {activeData.paymentMethod} • {activeData.paymentStatus || "UNPAID"}
               </Text>
             </View>
 
-            {order.items?.map((item: any, i: number) => (
-              <View key={i} style={styles.summaryRow}>
+            {activeData.items?.map((item: any, i: number) => (
+              <View key={item.id || i} style={styles.summaryRow}>
                 <Text style={styles.summaryQty}>{item.quantity}x</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.summaryItemName} numberOfLines={1}>
-                    {item.name}
+                    {item.itemName || item.name}
                   </Text>
-                  {item.proteins && item.proteins.length > 0 && (
-                    <Text style={styles.summaryAddon}>
-                      + {item.proteins.map((p: any) => p.name).join(", ")}
-                    </Text>
-                  )}
-                  {item.soup && <Text style={styles.summaryAddon}>+ {item.soup}</Text>}
+                  {item.addonsSummary ? (
+                    <Text style={styles.summaryAddon}>+ {item.addonsSummary}</Text>
+                  ) : null}
                 </View>
-                <Text style={styles.summaryItemPrice}>₦{item.totalPrice?.toLocaleString()}</Text>
+                <Text style={styles.summaryItemPrice}>
+                  ₦{Number(item.totalPrice ?? 0).toLocaleString()}
+                </Text>
               </View>
             ))}
 
+            {Number(activeData.deliveryFee || 0) > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryQty}>🛵</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryItemName}>
+                    Delivery ({activeData.deliveryZoneName || "Corridor"})
+                  </Text>
+                </View>
+                <Text style={styles.summaryItemPrice}>
+                  ₦{Number(activeData.deliveryFee).toLocaleString()}
+                </Text>
+              </View>
+            )}
+
             <View style={styles.summaryTotalRow}>
-              <Text style={styles.summaryTotalLabel}>Total Paid</Text>
-              <Text style={styles.summaryTotalValue}>₦{order.totalAmount?.toLocaleString()}</Text>
+              <Text style={styles.summaryTotalLabel}>Total Amount</Text>
+              <Text style={styles.summaryTotalValue}>
+                ₦{Number(activeData.totalAmount ?? 0).toLocaleString()}
+              </Text>
             </View>
           </View>
 
-          {/* HANDS-FREE AUTOMATED KITCHEN TRACKING BADGE */}
+          {/* CUSTOMER CANCELLATION BUTTON (Allowed strictly before ACCEPTED/PREPARING) */}
+          {isCancelableByCustomer && (
+            <TouchableOpacity
+              onPress={handleRequestCancel}
+              disabled={isCancelling}
+              style={styles.cancelOrderBtn}
+              activeOpacity={0.85}
+            >
+              {isCancelling ? (
+                <ActivityIndicator color="#FCA5A5" />
+              ) : (
+                <Text style={styles.cancelOrderBtnText}>✕ Cancel Order Before Prep Starts</Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* LIVE SYNC BADGE */}
           <View style={[styles.liveSyncCard, SHADOWS.card]}>
             <View style={styles.liveSyncTopRow}>
               <View style={styles.liveSyncDotBox}>
                 <View style={styles.liveSyncDot} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.liveSyncTitle}>Hands-Free Kitchen Tracking</Text>
+                <Text style={styles.liveSyncTitle}>Authoritative Server Tracking</Text>
                 <Text style={styles.liveSyncSubtitle}>
-                  This screen updates automatically in real-time as your meal is cooked, packed, and dispatched.
+                  Every milestone updates directly from Tuta Kitchen &amp; Dispatch operations.
                 </Text>
               </View>
             </View>
@@ -436,6 +570,49 @@ export const LiveTrackingModal: React.FC<LiveTrackingModalProps> = ({
 }
 
 const styles = StyleSheet.create({
+  exceptionCard: {
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(230, 198, 101, 0.12)",
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  exceptionCardAlert: {
+    backgroundColor: "rgba(239, 68, 68, 0.14)",
+    borderColor: "rgba(239, 68, 68, 0.5)",
+  },
+  exceptionTitle: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  exceptionBody: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  riderPendingTitle: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  cancelOrderBtn: {
+    marginBottom: 14,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.45)",
+  },
+  cancelOrderBtnText: {
+    color: "#FCA5A5",
+    fontSize: 13,
+    fontWeight: "800",
+  },
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -564,7 +741,7 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     letterSpacing: 2,
     marginVertical: 4,
-    fontFamily: "monospace",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
   },
   tokenStatusBadge: {
     backgroundColor: COLORS.primary,

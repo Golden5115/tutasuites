@@ -6,7 +6,13 @@ export const ENDPOINTS = {
   menu: `${API_BASE_URL}/api/mobile/menu`,
   orders: `${API_BASE_URL}/api/mobile/orders`,
   myOrders: `${API_BASE_URL}/api/mobile/orders?mine=1`,
-  orderById: (id: string) => `${API_BASE_URL}/api/mobile/orders/${id}`,
+  orderById: (id: string) => `${API_BASE_URL}/api/mobile/orders/${encodeURIComponent(id)}`,
+  orderCancel: (id: string) =>
+    `${API_BASE_URL}/api/mobile/orders/${encodeURIComponent(id)}/cancel`,
+  orderByTrackingToken: (token: string) =>
+    `${API_BASE_URL}/api/mobile/orders/tracking/${encodeURIComponent(token)}`,
+  notifications: `${API_BASE_URL}/api/mobile/notifications`,
+  pushToken: `${API_BASE_URL}/api/mobile/push-token`,
   register: `${API_BASE_URL}/api/mobile/auth/register`,
   login: `${API_BASE_URL}/api/mobile/auth/login`,
   sendOtp: `${API_BASE_URL}/api/mobile/auth/send-otp`,
