@@ -30,7 +30,7 @@ export async function sendSpacemailSmtp(
 
     const timer = setTimeout(() => {
       finish({ ok: false, error: "SMTP connection timed out" })
-    }, 4500)
+    }, 7500)
 
     const socket = tls.connect(
       {
@@ -144,36 +144,52 @@ export async function sendResendEmail(
   if (smtpResult.ok) {
     return { ok: true, provider: "admin@tutasuites.com (Spacemail)" }
   }
+  console.warn("[EMAIL] Spacemail SMTP fallback triggered:", smtpResult.error || "Unknown SMTP error")
 
   // 2. Backup: Resend API
   const apiKey =
     process.env.RESEND_API_KEY ||
     Buffer.from("cmVfN0FQM3BvZWFfOXZ4YWZMM21rVFpZWnBUUWZWZ3ZQdG45", "base64").toString("utf-8")
 
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "Tuta Grab & Go <onboarding@resend.dev>",
-        to: [to.trim()],
-        subject,
-        html: htmlContent,
-      }),
-    })
+  const senders = [
+    process.env.EMAIL_FROM || 'Tuta Suites & Grab-n-Go <admin@tutasuites.com>',
+    "Tuta Grab & Go <onboarding@resend.dev>",
+  ]
 
-    if (res.ok) {
-      const data = await res.json().catch(() => ({}))
-      return { ok: true, id: data.id, provider: "resend" }
+  let lastResendError = ""
+  for (const from of senders) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: [to.trim()],
+          subject,
+          html: htmlContent,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return { ok: true, id: data.id, provider: `resend (${from})` }
+      }
+
+      const errBody = await res.text().catch(() => "")
+      lastResendError = `HTTP ${res.status} ${errBody.slice(0, 160)}`
+    } catch (err: any) {
+      lastResendError = err?.message || "Resend request failed"
     }
-
-    return { ok: false, error: smtpResult.error || "Email delivery failed" }
-  } catch (err: any) {
-    return { ok: false, error: smtpResult.error || err.message }
   }
+
+  console.error("[EMAIL] All delivery providers failed:", {
+    smtp: smtpResult.error,
+    resend: lastResendError,
+  })
+  return { ok: false, error: smtpResult.error || lastResendError || "Email delivery failed" }
 }
 
 export function buildLuxuryOtpEmailHtml(params: {

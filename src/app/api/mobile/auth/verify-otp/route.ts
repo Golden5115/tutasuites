@@ -101,26 +101,37 @@ export async function POST(req: Request) {
       `SELECT "id", "email", "phone", "emailVerifiedAt"
        FROM "MobileCustomer"
        WHERE LOWER("email") = $1 OR "phone" = ANY($2::text[])
-       LIMIT 1`,
+       LIMIT 5`,
       email,
       phoneVariants
     )
 
+    const conflictingPhoneOwner = existingRows.find(
+      (row) =>
+        row.email &&
+        row.email.toLowerCase() !== email &&
+        row.emailVerifiedAt
+    )
+
+    if (conflictingPhoneOwner) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "This phone number is already linked to another verified account.",
+        },
+        { status: 409, headers: SECURITY_CORS_HEADERS }
+      )
+    }
+
+    const emailMatch = existingRows.find(
+      (row) => row.email && row.email.toLowerCase() === email
+    ) || existingRows[0]
+
     let customerId: string
 
-    if (existingRows.length > 0) {
-      const existing = existingRows[0]
-      if (existing.emailVerifiedAt) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "An account with this email or phone number is already verified. Please sign in.",
-          },
-          { status: 409, headers: SECURITY_CORS_HEADERS }
-        )
-      }
-      // Upgrade pre-existing unverified record while preserving its customer ID
-      customerId = existing.id
+    if (emailMatch) {
+      // Customer proved ownership of this email via 6-digit OTP; preserve customer ID & orders
+      customerId = emailMatch.id
       await prisma.$executeRawUnsafe(
         `UPDATE "MobileCustomer"
          SET "name" = $1,

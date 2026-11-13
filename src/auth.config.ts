@@ -1,6 +1,24 @@
 import type { NextAuthConfig } from "next-auth"
 
+// Guard against `.env` `http://localhost:3000` accidentally copied into Vercel env vars,
+// which causes NextAuth to issue non-secure cookies and redirect staff to localhost:3000.
+if (process.env.VERCEL) {
+  for (const key of ["AUTH_URL", "NEXTAUTH_URL"] as const) {
+    const val = process.env[key]
+    if (!val) continue
+    try {
+      const { hostname } = new URL(val)
+      if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0") {
+        delete process.env[key]
+      }
+    } catch {
+      delete process.env[key]
+    }
+  }
+}
+
 export const authConfig = {
+  trustHost: true,
   providers: [],
   callbacks: {
     jwt({ token, user }) {

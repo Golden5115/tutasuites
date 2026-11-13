@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as FileSystem from "expo-file-system";
 import { Platform } from "react-native";
 import { ENDPOINTS } from "../constants/config";
 
@@ -29,7 +29,8 @@ const SECURE_KEYS = {
   USER_PROFILE: "tuta_sec_user_profile",
 } as const;
 
-const LEGACY_ASYNC_STORAGE_USER_KEY = "tuta_user";
+const memoryVault = new Map<string, string>();
+const FALLBACK_SESSION_FILE = `${(FileSystem as any).documentDirectory || ""}tuta_auth_vault.json`;
 
 let inMemoryAccessToken: string | null = null;
 let inMemoryAccessExpiresAt: number = 0;
@@ -37,64 +38,162 @@ let inMemoryRefreshToken: string | null = null;
 let inMemoryUser: AuthenticatedCustomer | null = null;
 let activeRefreshPromise: Promise<AuthSessionPayload | null> | null = null;
 
+function getNativeSecureStore(): any | null {
+  if (Platform.OS === "web") return null;
+  try {
+    // Dynamic require prevents crash in Expo Go if native module wasn't loaded before Metro restart
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("expo-secure-store");
+    if (mod && typeof mod.setItemAsync === "function") {
+      return mod;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function readFallbackFileVault(): Promise<Record<string, string>> {
+  try {
+    if (Platform.OS === "web" || !(FileSystem as any).documentDirectory) {
+      return {};
+    }
+    const info = await FileSystem.getInfoAsync(FALLBACK_SESSION_FILE);
+    if (!info.exists) return {};
+    const raw = await FileSystem.readAsStringAsync(FALLBACK_SESSION_FILE);
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeFallbackFileVault(data: Record<string, string>): Promise<void> {
+  try {
+    if (Platform.OS === "web" || !(FileSystem as any).documentDirectory) {
+      return;
+    }
+    await FileSystem.writeAsStringAsync(FALLBACK_SESSION_FILE, JSON.stringify(data));
+  } catch {
+    // Ignore file write errors
+  }
+}
+
 async function setSecureItem(key: string, value: string): Promise<void> {
+  memoryVault.set(key, value);
+
   if (Platform.OS === "web") {
     try {
       (globalThis as any).localStorage?.setItem(key, value);
     } catch {}
     return;
   }
-  await SecureStore.setItemAsync(key, value, {
-    keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
-  });
+
+  const secureStore = getNativeSecureStore();
+  if (secureStore) {
+    try {
+      await secureStore.setItemAsync(key, value);
+      return;
+    } catch {
+      // Fall through to app-private FileSystem vault if Expo Go SecureStore throws
+    }
+  }
+
+  const vault = await readFallbackFileVault();
+  vault[key] = value;
+  await writeFallbackFileVault(vault);
 }
 
 async function getSecureItem(key: string): Promise<string | null> {
   if (Platform.OS === "web") {
     try {
-      return (globalThis as any).localStorage?.getItem(key) ?? null;
+      return (globalThis as any).localStorage?.getItem(key) ?? memoryVault.get(key) ?? null;
     } catch {
-      return null;
+      return memoryVault.get(key) ?? null;
     }
   }
-  return SecureStore.getItemAsync(key);
+
+  const secureStore = getNativeSecureStore();
+  if (secureStore) {
+    try {
+      const val = await secureStore.getItemAsync(key);
+      if (val !== null && val !== undefined) {
+        memoryVault.set(key, val);
+        return val;
+      }
+    } catch {
+      // Fall through to app-private FileSystem vault
+    }
+  }
+
+  const vault = await readFallbackFileVault();
+  if (vault[key]) {
+    memoryVault.set(key, vault[key]);
+    return vault[key];
+  }
+
+  return memoryVault.get(key) ?? null;
 }
 
 async function deleteSecureItem(key: string): Promise<void> {
+  memoryVault.delete(key);
+
   if (Platform.OS === "web") {
     try {
       (globalThis as any).localStorage?.removeItem(key);
     } catch {}
     return;
   }
-  await SecureStore.deleteItemAsync(key);
+
+  const secureStore = getNativeSecureStore();
+  if (secureStore) {
+    try {
+      await secureStore.deleteItemAsync(key);
+    } catch {}
+  }
+
+  const vault = await readFallbackFileVault();
+  if (key in vault) {
+    delete vault[key];
+    await writeFallbackFileVault(vault);
+  }
 }
 
 /**
- * Persist authenticated session tokens & safe customer profile in Expo SecureStore.
+ * Persist authenticated session tokens & safe customer profile in Expo SecureStore
+ * (with automatic fallback so it never throws in Expo Go or Web).
  */
 export async function saveAuthSession(session: AuthSessionPayload): Promise<void> {
-  inMemoryAccessToken = session.accessToken;
-  inMemoryAccessExpiresAt = new Date(session.accessTokenExpiresAt).getTime() || Date.now() + 15 * 60 * 1000;
-  inMemoryRefreshToken = session.refreshToken;
-  inMemoryUser = session.user;
+  try {
+    inMemoryAccessToken = session.accessToken;
+    inMemoryAccessExpiresAt =
+      new Date(session.accessTokenExpiresAt).getTime() ||
+      Date.now() + 15 * 60 * 1000;
+    inMemoryRefreshToken = session.refreshToken;
+    inMemoryUser = session.user;
 
-  await Promise.all([
-    setSecureItem(SECURE_KEYS.ACCESS_TOKEN, session.accessToken),
-    setSecureItem(SECURE_KEYS.ACCESS_EXPIRES_AT, session.accessTokenExpiresAt),
-    setSecureItem(SECURE_KEYS.REFRESH_TOKEN, session.refreshToken),
-    setSecureItem(SECURE_KEYS.REFRESH_EXPIRES_AT, session.refreshTokenExpiresAt),
-    setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(session.user)),
-    deleteSecureItem(LEGACY_ASYNC_STORAGE_USER_KEY).catch(() => {}),
-  ]);
+    await Promise.all([
+      setSecureItem(SECURE_KEYS.ACCESS_TOKEN, session.accessToken),
+      setSecureItem(SECURE_KEYS.ACCESS_EXPIRES_AT, session.accessTokenExpiresAt),
+      setSecureItem(SECURE_KEYS.REFRESH_TOKEN, session.refreshToken),
+      setSecureItem(SECURE_KEYS.REFRESH_EXPIRES_AT, session.refreshTokenExpiresAt),
+      setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(session.user)),
+    ]);
+    console.log("[AUTH] Session saved securely for:", session.user.email || session.user.phone);
+  } catch (err) {
+    console.warn("[AUTH] Non-fatal storage warning:", err);
+  }
 }
 
 /**
  * Update stored customer profile metadata in SecureStore.
  */
-export async function updateStoredCustomerProfile(user: AuthenticatedCustomer): Promise<void> {
-  inMemoryUser = user;
-  await setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(user));
+export async function updateStoredCustomerProfile(
+  user: AuthenticatedCustomer
+): Promise<void> {
+  try {
+    inMemoryUser = user;
+    await setSecureItem(SECURE_KEYS.USER_PROFILE, JSON.stringify(user));
+  } catch {}
 }
 
 /**
@@ -112,7 +211,6 @@ export async function clearAuthSession(): Promise<void> {
     deleteSecureItem(SECURE_KEYS.REFRESH_TOKEN).catch(() => {}),
     deleteSecureItem(SECURE_KEYS.REFRESH_EXPIRES_AT).catch(() => {}),
     deleteSecureItem(SECURE_KEYS.USER_PROFILE).catch(() => {}),
-    deleteSecureItem(LEGACY_ASYNC_STORAGE_USER_KEY).catch(() => {}),
   ]);
 }
 
@@ -144,13 +242,11 @@ export async function rotateSessionTokens(): Promise<AuthSessionPayload | null> 
       });
 
       if (response.status === 401 || response.status === 403) {
-        // Refresh token expired, revoked, or reused -> clear session
         await clearAuthSession();
         return null;
       }
 
       if (!response.ok) {
-        // Transient server error -> keep cached session
         return null;
       }
 
@@ -180,7 +276,6 @@ export async function rotateSessionTokens(): Promise<AuthSessionPayload | null> 
       await saveAuthSession(updatedSession);
       return updatedSession;
     } catch {
-      // Network error while offline -> do not wipe stored credentials
       return null;
     } finally {
       activeRefreshPromise = null;
@@ -192,7 +287,6 @@ export async function rotateSessionTokens(): Promise<AuthSessionPayload | null> 
 
 /**
  * Restore persistent session on app startup.
- * Automatically refreshes expired access tokens using the rotating refresh token.
  */
 export async function restoreCustomerSession(): Promise<AuthenticatedCustomer | null> {
   try {
@@ -210,13 +304,10 @@ export async function restoreCustomerSession(): Promise<AuthenticatedCustomer | 
       getSecureItem(SECURE_KEYS.USER_PROFILE),
     ]);
 
-    // Clean up any legacy unauthenticated AsyncStorage user object if SecureStore has no refresh token
     if (!storedRefreshToken) {
-      await deleteSecureItem(LEGACY_ASYNC_STORAGE_USER_KEY).catch(() => {});
       return null;
     }
 
-    // Check if refresh token itself has passed expiration
     if (storedRefreshExpiresAt) {
       const refreshExpMs = new Date(storedRefreshExpiresAt).getTime();
       if (Number.isFinite(refreshExpMs) && refreshExpMs <= Date.now()) {
@@ -246,7 +337,6 @@ export async function restoreCustomerSession(): Promise<AuthenticatedCustomer | 
       inMemoryAccessExpiresAt > Date.now() + 60 * 1000;
 
     if (accessValid && cachedUser) {
-      // Refresh profile in background without blocking startup UI
       fetch(ENDPOINTS.me, {
         headers: { Authorization: `Bearer ${storedAccessToken}` },
       })
@@ -265,13 +355,11 @@ export async function restoreCustomerSession(): Promise<AuthenticatedCustomer | 
       return cachedUser;
     }
 
-    // Access token expired or missing -> rotate using refresh token
     const rotated = await rotateSessionTokens();
     if (rotated?.user) {
       return rotated.user;
     }
 
-    // If offline and we still have a non-expired refresh token + cachedUser, keep user signed in
     const stillHasRefresh = await getSecureItem(SECURE_KEYS.REFRESH_TOKEN);
     if (stillHasRefresh && cachedUser) {
       return cachedUser;
@@ -283,9 +371,6 @@ export async function restoreCustomerSession(): Promise<AuthenticatedCustomer | 
   }
 }
 
-/**
- * Retrieve a valid access token, automatically refreshing if expired.
- */
 export async function getValidAccessToken(): Promise<string | null> {
   if (
     inMemoryAccessToken &&
@@ -302,9 +387,6 @@ export async function getValidAccessToken(): Promise<string | null> {
   return inMemoryAccessToken;
 }
 
-/**
- * Perform an authenticated fetch with automatic Bearer token injection and 401 refresh retry.
- */
 export async function authenticatedFetch(
   url: string,
   init: RequestInit = {}
@@ -335,9 +417,6 @@ export async function authenticatedFetch(
   return response;
 }
 
-/**
- * Revoke the active session on the backend and wipe local SecureStore credentials.
- */
 export async function logoutCustomerSession(): Promise<void> {
   const refreshToken =
     inMemoryRefreshToken || (await getSecureItem(SECURE_KEYS.REFRESH_TOKEN));

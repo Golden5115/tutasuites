@@ -99,22 +99,24 @@ export async function POST(req: Request) {
 
     await ensureMobileAuthSchema()
 
-    // Check if email or phone is already registered and verified
+    // Only block if a different verified email already owns this phone number
     const phoneVariants = getPhoneLookupVariants(phone)
-    const existingCustomers = await prisma.$queryRawUnsafe<any[]>(
+    const conflictingPhone = await prisma.$queryRawUnsafe<any[]>(
       `SELECT "id", "email", "phone", "emailVerifiedAt"
        FROM "MobileCustomer"
-       WHERE LOWER("email") = $1 OR "phone" = ANY($2::text[])
+       WHERE "phone" = ANY($1::text[])
+         AND LOWER(COALESCE("email", '')) <> $2
+         AND "emailVerifiedAt" IS NOT NULL
        LIMIT 1`,
-      email,
-      phoneVariants
+      phoneVariants,
+      email
     )
 
-    if (existingCustomers.length > 0 && existingCustomers[0].emailVerifiedAt) {
+    if (conflictingPhone.length > 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "An account with this email or phone number already exists. Please sign in instead.",
+          error: "This phone number is already linked to another verified account.",
         },
         { status: 409, headers: SECURITY_CORS_HEADERS }
       )

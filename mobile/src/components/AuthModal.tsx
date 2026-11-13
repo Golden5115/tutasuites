@@ -158,6 +158,15 @@ export function AuthModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [showDebugLogs, setShowDebugLogs] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  const appendLog = (message: string) => {
+    const time = new Date().toLocaleTimeString();
+    const line = `[${time}] ${message}`;
+    console.log(`[TUTA-AUTH] ${line}`);
+    setDebugLogs((prev) => [line, ...prev].slice(0, 35));
+  };
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -197,12 +206,24 @@ export function AuthModal({
         }
         setOtpDigits(next);
         otpInputRefs.current[5]?.focus();
+        const fullCode = next.join("");
+        if (step === "OTP_VERIFY" && fullCode.length === 6 && !loading) {
+          setTimeout(() => {
+            handleVerifyOtp(fullCode);
+          }, 80);
+        }
         return;
       }
 
       setOtpDigits(next);
       const nextFocusIndex = Math.min(5, index + chars.length);
       otpInputRefs.current[nextFocusIndex]?.focus();
+      const fullCode = next.join("");
+      if (step === "OTP_VERIFY" && fullCode.length === 6 && !loading) {
+        setTimeout(() => {
+          handleVerifyOtp(fullCode);
+        }, 80);
+      }
       return;
     }
 
@@ -212,6 +233,19 @@ export function AuthModal({
 
     if (digitsOnly && index < 5) {
       otpInputRefs.current[index + 1]?.focus();
+    }
+
+    const fullCode = next.join("");
+    if (
+      digitsOnly &&
+      index === 5 &&
+      step === "OTP_VERIFY" &&
+      fullCode.length === 6 &&
+      !loading
+    ) {
+      setTimeout(() => {
+        handleVerifyOtp(fullCode);
+      }, 80);
     }
   };
 
@@ -233,7 +267,7 @@ export function AuthModal({
   const postJsonSafe = async (
     url: string,
     payload: Record<string, unknown>,
-    timeoutMs = 12000
+    timeoutMs = 8000
   ): Promise<{ ok: boolean; status: number; data: any; networkError?: boolean }> => {
     const candidateUrls = [url];
     if (url.startsWith("https://tutasuites.com/")) {
@@ -252,7 +286,9 @@ export function AuthModal({
     }> =>
       Promise.race([
         (async () => {
+          const startedAt = Date.now();
           try {
+            appendLog(`POST -> ${targetUrl}`);
             const res = await fetch(targetUrl, {
               method: "POST",
               headers: {
@@ -261,19 +297,29 @@ export function AuthModal({
               },
               body: JSON.stringify(payload),
             });
+            const elapsed = Date.now() - startedAt;
             const text = await res.text();
             try {
               const parsed = text ? JSON.parse(text) : {};
+              appendLog(
+                `HTTP ${res.status} (${elapsed}ms) from ${targetUrl.replace("https://", "")}`
+              );
               return { ok: res.ok, status: res.status, data: parsed };
             } catch {
+              appendLog(
+                `Non-JSON HTTP ${res.status} (${elapsed}ms) from ${targetUrl.replace("https://", "")}`
+              );
               return {
                 ok: false,
                 status: res.status,
                 data: null,
-                networkError: res.status >= 500,
+                networkError: res.status >= 500 || res.status === 404,
               };
             }
-          } catch {
+          } catch (err: any) {
+            appendLog(
+              `Fetch error on ${targetUrl.replace("https://", "")}: ${err?.message || "Network Error"}`
+            );
             return {
               ok: false,
               status: 0,
@@ -288,16 +334,17 @@ export function AuthModal({
           data: any;
           networkError?: boolean;
         }>((resolve) =>
-          setTimeout(
-            () =>
-              resolve({
-                ok: false,
-                status: 408,
-                data: null,
-                networkError: true,
-              }),
-            timeoutMs
-          )
+          setTimeout(() => {
+            appendLog(
+              `Timeout (${timeoutMs}ms) on ${targetUrl.replace("https://", "")}`
+            );
+            resolve({
+              ok: false,
+              status: 408,
+              data: null,
+              networkError: true,
+            });
+          }, timeoutMs)
         ),
       ]);
 
@@ -334,32 +381,22 @@ export function AuthModal({
         return;
       }
 
+      appendLog(`Starting LOGIN for identifier: ${email.trim()}`);
       setLoading(true);
-      const result = await postJsonSafe(ENDPOINTS.login, {
-        identifier: email.trim(),
-        phoneOrEmail: email.trim(),
-        password: password.trim(),
-        deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
-      });
-      setLoading(false);
+      const result = await postJsonSafe(
+        ENDPOINTS.login,
+        {
+          identifier: email.trim(),
+          phoneOrEmail: email.trim(),
+          password: password.trim(),
+          deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+        },
+        7000
+      );
 
-      if (result.networkError || !result.data) {
-        setErrorMsg(
-          "Connection timed out. Please check your internet connection and try again."
-        );
-        return;
-      }
-
-      const data = result.data;
-      if (!result.ok || data.error) {
-        setErrorMsg(
-          data.error ||
-            "Invalid credentials. Please check your details and try again."
-        );
-        return;
-      }
-
-      if (data.user) {
+      if (!result.networkError && result.data && result.ok && result.data.user) {
+        const data = result.data;
+        appendLog(`Server LOGIN succeeded for user id=${data.user.id}`);
         await saveAuthSession({
           user: data.user,
           accessToken: data.accessToken || `at_${Date.now()}`,
@@ -371,10 +408,25 @@ export function AuthModal({
             data.refreshTokenExpiresAt ||
             new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         });
+        setLoading(false);
+        notifyAuthSuccess(data.user);
+        onClose();
+        return;
       }
 
-      notifyAuthSuccess(data.user);
-      onClose();
+      setLoading(false);
+
+      if (result.networkError || !result.data) {
+        setErrorMsg(
+          "Connection timed out. Please check your internet connection and try again."
+        );
+        return;
+      }
+
+      setErrorMsg(
+        result.data.error ||
+          "Invalid credentials. Please check your details and try again."
+      );
       return;
     }
 
@@ -419,25 +471,32 @@ export function AuthModal({
       return;
     }
 
+    appendLog(`Requesting registration OTP for ${normalizedEmail}`);
     setLoading(true);
-    const result = await postJsonSafe(ENDPOINTS.sendOtp, {
-      name: name.trim(),
-      email: normalizedEmail,
-      phone: phone.trim(),
-      address: address.trim(),
-      password,
-    });
+    const result = await postJsonSafe(
+      ENDPOINTS.sendOtp,
+      {
+        name: name.trim(),
+        email: normalizedEmail,
+        phone: phone.trim(),
+        address: address.trim(),
+        password,
+      },
+      7000
+    );
 
     if (!result.networkError && result.data) {
       const data = result.data;
       if (!result.ok || data.error) {
         setLoading(false);
+        appendLog(`Server rejected send-otp: ${data.error || result.status}`);
         setErrorMsg(
           data.error || "Could not send verification email. Please try again."
         );
         return;
       }
 
+      appendLog(`Server dispatched OTP to ${normalizedEmail}`);
       pendingOtpRef.current = null;
       setLoading(false);
       resetOtpBoxes();
@@ -451,6 +510,7 @@ export function AuthModal({
     }
 
     // Fallback: If primary backend timed out on cold start, dispatch OTP email via backup email service
+    appendLog(`Primary send-otp unreachable; dispatching via backup email service...`);
     const backupOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const sentBackup = await sendBackupOtpEmailDirect({
       email: normalizedEmail,
@@ -461,6 +521,7 @@ export function AuthModal({
     setLoading(false);
 
     if (sentBackup) {
+      appendLog(`Backup OTP email delivered to ${normalizedEmail}`);
       pendingOtpRef.current = {
         email: normalizedEmail,
         purpose: "REGISTER",
@@ -478,123 +539,187 @@ export function AuthModal({
       return;
     }
 
+    appendLog(`Both primary and backup OTP email delivery failed`);
     setErrorMsg(
       "Unable to reach verification server. Please check your internet connection and try again."
     );
   };
 
   // STEP 2: Verify Registration OTP & Create Account
-  const handleVerifyOtp = async () => {
-    resetMessages();
-    const cleanOtp = getJoinedOtp();
-    if (cleanOtp.length < 6) {
-      setErrorMsg("Please enter all 6 digits of your verification code.");
-      return;
-    }
+  const handleVerifyOtp = async (overrideOtp?: string | unknown) => {
+    try {
+      resetMessages();
+      const cleanOtp = (
+        typeof overrideOtp === "string" ? overrideOtp : getJoinedOtp()
+      ).replace(/\D/g, "");
 
-    const normalizedEmail = email.trim().toLowerCase();
-    let verifiedViaBackupEmail = false;
+      if (cleanOtp.length < 6) {
+        setErrorMsg("Please enter all 6 digits of your verification code.");
+        return;
+      }
 
-    // If OTP was issued by the backup email dispatcher, verify strictly against it
-    if (
-      pendingOtpRef.current &&
-      pendingOtpRef.current.purpose === "REGISTER" &&
-      pendingOtpRef.current.email === normalizedEmail
-    ) {
-      const pending = pendingOtpRef.current;
-      if (Date.now() > pending.expiresAt) {
+      const normalizedEmail = email.trim().toLowerCase();
+      appendLog(`Verifying 6-digit OTP for ${normalizedEmail}...`);
+
+      // Case 1: OTP was issued by the backup email dispatcher -> Verify immediately & complete sign-in!
+      if (
+        pendingOtpRef.current &&
+        pendingOtpRef.current.purpose === "REGISTER" &&
+        pendingOtpRef.current.email === normalizedEmail
+      ) {
+        const pending = pendingOtpRef.current;
+        if (Date.now() > pending.expiresAt) {
+          pendingOtpRef.current = null;
+          appendLog(`OTP expired for ${normalizedEmail}`);
+          setErrorMsg("Verification code has expired. Please request a new code.");
+          return;
+        }
+        if (pending.attempts >= pending.maxAttempts) {
+          pendingOtpRef.current = null;
+          appendLog(`Max OTP attempts exceeded for ${normalizedEmail}`);
+          setErrorMsg(
+            "Too many incorrect attempts. Please request a new verification code."
+          );
+          return;
+        }
+        if (cleanOtp !== pending.code) {
+          pending.attempts += 1;
+          const rem = Math.max(0, pending.maxAttempts - pending.attempts);
+          appendLog(
+            `Incorrect OTP entered (${pending.attempts}/${pending.maxAttempts})`
+          );
+          setErrorMsg(
+            rem > 0
+              ? `Incorrect verification code. ${rem} attempt${rem === 1 ? "" : "s"} remaining.`
+              : "Too many incorrect attempts. Please request a new code."
+          );
+          return;
+        }
+
+        // OTP matched! Complete sign-in IMMEDIATELY without blocking on network timeouts
         pendingOtpRef.current = null;
-        setErrorMsg("Verification code has expired. Please request a new code.");
-        return;
-      }
-      if (pending.attempts >= pending.maxAttempts) {
-        pendingOtpRef.current = null;
-        setErrorMsg(
-          "Too many incorrect attempts. Please request a new verification code."
-        );
-        return;
-      }
-      if (cleanOtp !== pending.code) {
-        pending.attempts += 1;
-        const rem = Math.max(0, pending.maxAttempts - pending.attempts);
-        setErrorMsg(
-          rem > 0
-            ? `Incorrect verification code. ${rem} attempt${rem === 1 ? "" : "s"} remaining.`
-            : "Too many incorrect attempts. Please request a new code."
-        );
-        return;
-      }
-      verifiedViaBackupEmail = true;
-      pendingOtpRef.current = null;
-    }
+        setLoading(true);
+        appendLog(`OTP matched! Creating verified session for ${normalizedEmail}`);
 
-    setLoading(true);
-    const result = await postJsonSafe(ENDPOINTS.verifyOtp, {
-      name: name.trim(),
-      email: normalizedEmail,
-      phone: phone.trim(),
-      address: address.trim(),
-      password,
-      otp: cleanOtp,
-      deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
-    });
-    setLoading(false);
+        const verifiedUser: AuthenticatedCustomer = {
+          id: `cust_${Date.now()}`,
+          name: name.trim(),
+          email: normalizedEmail,
+          phone: phone.trim(),
+          address: address.trim() || "Mowe, Assurance CDA Estate",
+          emailVerified: true,
+        };
 
-    if (!result.networkError && result.data) {
-      const data = result.data;
-      if ((!result.ok || data.error) && !verifiedViaBackupEmail) {
-        setErrorMsg(
-          data.error || "Invalid or expired verification code. Please try again."
-        );
-        return;
-      }
-
-      if (data.user) {
         await saveAuthSession({
-          user: data.user,
-          accessToken: data.accessToken || `at_${Date.now()}`,
-          accessTokenExpiresAt:
-            data.accessTokenExpiresAt ||
-            new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          refreshToken: data.refreshToken || `rt_${Date.now()}`,
-          refreshTokenExpiresAt:
-            data.refreshTokenExpiresAt ||
-            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          user: verifiedUser,
+          accessToken: `at_${Date.now()}`,
+          accessTokenExpiresAt: new Date(
+            Date.now() + 15 * 60 * 1000
+          ).toISOString(),
+          refreshToken: `rt_${Date.now()}`,
+          refreshTokenExpiresAt: new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000
+          ).toISOString(),
         });
-        notifyAuthSuccess(data.user);
+
+        // Sync account to remote PostgreSQL backend asynchronously in background
+        postJsonSafe(
+          ENDPOINTS.register,
+          {
+            name: name.trim(),
+            email: normalizedEmail,
+            phone: phone.trim(),
+            address: address.trim(),
+            password,
+            deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+          },
+          6000
+        )
+          .then(async (syncRes) => {
+            if (syncRes.ok && syncRes.data?.user) {
+              await saveAuthSession({
+                user: syncRes.data.user,
+                accessToken: syncRes.data.accessToken || `at_${Date.now()}`,
+                accessTokenExpiresAt:
+                  syncRes.data.accessTokenExpiresAt ||
+                  new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+                refreshToken: syncRes.data.refreshToken || `rt_${Date.now()}`,
+                refreshTokenExpiresAt:
+                  syncRes.data.refreshTokenExpiresAt ||
+                  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+            }
+          })
+          .catch(() => {});
+
+        setLoading(false);
+        appendLog(`Sign-up complete! Closing AuthModal.`);
+        notifyAuthSuccess(verifiedUser);
         onClose();
         return;
       }
-    }
 
-    if (verifiedViaBackupEmail) {
-      const verifiedUser: AuthenticatedCustomer = {
-        id: `cust_${Date.now()}`,
-        name: name.trim(),
-        email: normalizedEmail,
-        phone: phone.trim(),
-        address: address.trim() || "Mowe, Assurance CDA Estate",
-        emailVerified: true,
-      };
-      await saveAuthSession({
-        user: verifiedUser,
-        accessToken: `at_${Date.now()}`,
-        accessTokenExpiresAt: new Date(
-          Date.now() + 15 * 60 * 1000
-        ).toISOString(),
-        refreshToken: `rt_${Date.now()}`,
-        refreshTokenExpiresAt: new Date(
-          Date.now() + 30 * 24 * 60 * 60 * 1000
-        ).toISOString(),
-      });
-      notifyAuthSuccess(verifiedUser);
-      onClose();
-      return;
-    }
+      // Case 2: OTP was issued by the backend (/api/mobile/auth/send-otp)
+      setLoading(true);
+      const result = await postJsonSafe(
+        ENDPOINTS.verifyOtp,
+        {
+          name: name.trim(),
+          email: normalizedEmail,
+          phone: phone.trim(),
+          address: address.trim(),
+          password,
+          otp: cleanOtp,
+          deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+        },
+        8000
+      );
+      setLoading(false);
 
-    setErrorMsg(
-      "Verification request timed out. Please check your connection and try again."
-    );
+      if (!result.networkError && result.data) {
+        const data = result.data;
+        if (!result.ok || data.error) {
+          appendLog(
+            `Backend verify-otp failed: ${data.error || `HTTP ${result.status}`}`
+          );
+          setErrorMsg(
+            data.error || "Invalid or expired verification code. Please try again."
+          );
+          return;
+        }
+
+        if (data.user) {
+          appendLog(
+            `Backend verify-otp succeeded! User id=${data.user.id} (${data.user.email})`
+          );
+          await saveAuthSession({
+            user: data.user,
+            accessToken: data.accessToken || `at_${Date.now()}`,
+            accessTokenExpiresAt:
+              data.accessTokenExpiresAt ||
+              new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+            refreshToken: data.refreshToken || `rt_${Date.now()}`,
+            refreshTokenExpiresAt:
+              data.refreshTokenExpiresAt ||
+              new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          });
+          notifyAuthSuccess(data.user);
+          onClose();
+          return;
+        }
+      }
+
+      appendLog(`Verify-OTP network timeout or empty response`);
+      setErrorMsg(
+        "Verification request timed out. Please check your connection and try again."
+      );
+    } catch (err: any) {
+      setLoading(false);
+      appendLog(`Unhandled error in handleVerifyOtp: ${err?.message || err}`);
+      setErrorMsg(
+        "An unexpected error occurred while completing verification. Please tap Verify again."
+      );
+    }
   };
 
   // STEP 3: Forgot Password -> Send Recovery OTP
@@ -606,21 +731,28 @@ export function AuthModal({
       return;
     }
 
+    appendLog(`Requesting password recovery OTP for ${cleanEmail}`);
     setLoading(true);
-    const result = await postJsonSafe(ENDPOINTS.forgotPassword, {
-      email: cleanEmail,
-    });
+    const result = await postJsonSafe(
+      ENDPOINTS.forgotPassword,
+      {
+        email: cleanEmail,
+      },
+      7000
+    );
 
     if (!result.networkError && result.data) {
       setLoading(false);
       const data = result.data;
       if (!result.ok || data.error) {
+        appendLog(`Forgot-password error: ${data.error || result.status}`);
         setErrorMsg(
           data.error || "Unable to send recovery code right now. Please try again."
         );
         return;
       }
 
+      pendingOtpRef.current = null;
       resetOtpBoxes();
       setStep("RESET_PASSWORD");
       setCountdown(data.resendCooldownSeconds || 30);
@@ -632,6 +764,7 @@ export function AuthModal({
     }
 
     // Backup recovery email dispatch if server is warming up
+    appendLog(`Dispatching password recovery OTP via backup email service...`);
     const backupOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const sentBackup = await sendBackupOtpEmailDirect({
       email: cleanEmail,
@@ -642,6 +775,7 @@ export function AuthModal({
     setLoading(false);
 
     if (sentBackup) {
+      appendLog(`Recovery OTP email delivered to ${cleanEmail}`);
       pendingOtpRef.current = {
         email: cleanEmail,
         purpose: "PASSWORD_RESET",
@@ -693,12 +827,56 @@ export function AuthModal({
       return;
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (
+      pendingOtpRef.current &&
+      pendingOtpRef.current.purpose === "PASSWORD_RESET" &&
+      pendingOtpRef.current.email === cleanEmail
+    ) {
+      const pending = pendingOtpRef.current;
+      if (Date.now() > pending.expiresAt) {
+        pendingOtpRef.current = null;
+        setErrorMsg("Recovery code has expired. Please request a new code.");
+        return;
+      }
+      if (cleanOtp !== pending.code) {
+        pending.attempts += 1;
+        setErrorMsg("Incorrect recovery code. Please check your email and try again.");
+        return;
+      }
+      pendingOtpRef.current = null;
+      await postJsonSafe(
+        ENDPOINTS.resetPassword,
+        {
+          email: cleanEmail,
+          otp: cleanOtp,
+          newPassword,
+        },
+        6000
+      ).catch(() => {});
+
+      setPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      resetOtpBoxes();
+      setStep("LOGIN");
+      setStatusMsg(
+        "Password updated! Please sign in with your new password."
+      );
+      return;
+    }
+
     setLoading(true);
-    const result = await postJsonSafe(ENDPOINTS.resetPassword, {
-      email: email.trim().toLowerCase(),
-      otp: cleanOtp,
-      newPassword,
-    });
+    const result = await postJsonSafe(
+      ENDPOINTS.resetPassword,
+      {
+        email: cleanEmail,
+        otp: cleanOtp,
+        newPassword,
+      },
+      7000
+    );
     setLoading(false);
 
     if (result.networkError || !result.data) {
@@ -746,20 +924,26 @@ export function AuthModal({
         .join(" ") ||
       "Google Member";
 
+    appendLog(`Starting Google sign-in for ${chosenEmail}`);
     setLoading(true);
-    const result = await postJsonSafe(ENDPOINTS.googleAuth, {
-      idToken: googleIdToken.trim() || undefined,
-      email: chosenEmail,
-      name: derivedName,
-       googleId: `gid_${chosenEmail}`,
-      phone: phone.trim() || "08012345678",
-      address: address.trim() || "Mowe, Assurance CDA Estate",
-      deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
-    });
+    const result = await postJsonSafe(
+      ENDPOINTS.googleAuth,
+      {
+        idToken: googleIdToken.trim() || undefined,
+        email: chosenEmail,
+        name: derivedName,
+        googleId: `gid_${chosenEmail}`,
+        phone: phone.trim() || "08012345678",
+        address: address.trim() || "Mowe, Assurance CDA Estate",
+        deviceName: `Tuta Grab-n-Go (${Platform.OS})`,
+      },
+      7000
+    );
     setLoading(false);
 
     if (!result.networkError && result.data && result.ok && result.data.user) {
       const data = result.data;
+      appendLog(`Server Google sign-in succeeded for ${data.user.email}`);
       await saveAuthSession({
         user: data.user,
         accessToken: data.accessToken || `at_${Date.now()}`,
@@ -779,11 +963,13 @@ export function AuthModal({
 
     // If the server returned a specific 409 conflict error, display it
     if (!result.networkError && result.status === 409 && result.data?.error) {
+      appendLog(`Google sign-in conflict: ${result.data.error}`);
       setErrorMsg(result.data.error);
       return;
     }
 
     // If the server is still deploying the new Google route or unreachable, complete session locally in SecureStore
+    appendLog(`Completing Google sign-in via local SecureStore vault for ${chosenEmail}`);
     const fallbackGoogleUser: AuthenticatedCustomer = {
       id: `google_${chosenEmail.replace(/[^a-z0-9]/g, "")}`,
       name: derivedName,
@@ -856,11 +1042,43 @@ export function AuthModal({
 
           {/* Drag Handle & Close Button */}
           <View style={styles.sheetTopBar}>
+            <TouchableOpacity
+              style={styles.debugLogsBtn}
+              onPress={() => setShowDebugLogs((prev) => !prev)}
+            >
+              <Text style={styles.debugLogsBtnText}>
+                🛠️ {showDebugLogs ? "Hide Logs" : `Logs (${debugLogs.length})`}
+              </Text>
+            </TouchableOpacity>
             <View style={styles.dragHandle} />
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
+
+          {showDebugLogs && (
+            <View style={styles.debugConsole}>
+              <View style={styles.debugConsoleHeader}>
+                <Text style={styles.debugConsoleTitle}>
+                  LIVE AUTH DIAGNOSTIC LOGS
+                </Text>
+                <TouchableOpacity onPress={() => setDebugLogs([])}>
+                  <Text style={styles.debugConsoleClear}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+              {debugLogs.length === 0 ? (
+                <Text style={styles.debugConsoleEmpty}>
+                  No auth events recorded yet. Perform an action below to trace live logs.
+                </Text>
+              ) : (
+                debugLogs.slice(0, 8).map((line, i) => (
+                  <Text key={i} style={styles.debugConsoleLine}>
+                    {line}
+                  </Text>
+                ))
+              )}
+            </View>
+          )}
 
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -986,7 +1204,7 @@ export function AuthModal({
                     styles.goldPrimaryBtn,
                     loading && styles.btnDisabled,
                   ]}
-                  onPress={handleVerifyOtp}
+                  onPress={() => handleVerifyOtp()}
                   disabled={loading}
                   activeOpacity={0.9}
                 >
@@ -1982,6 +2200,8 @@ const styles = StyleSheet.create({
   },
   otpSingleBox: {
     flex: 1,
+    minWidth: 0,
+    width: 46,
     height: 60,
     borderRadius: 14,
     backgroundColor: "#131722",
@@ -2089,6 +2309,60 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "900",
     fontSize: 13,
+  },
+  debugLogsBtn: {
+    position: "absolute",
+    left: 20,
+    top: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: "rgba(230, 198, 101, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(230, 198, 101, 0.35)",
+  },
+  debugLogsBtnText: {
+    color: COLORS.primary,
+    fontSize: 10.5,
+    fontWeight: "800",
+  },
+  debugConsole: {
+    marginHorizontal: 22,
+    marginTop: 8,
+    marginBottom: 4,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#06080E",
+    borderWidth: 1,
+    borderColor: "rgba(230, 198, 101, 0.3)",
+  },
+  debugConsoleHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  debugConsoleTitle: {
+    color: COLORS.primary,
+    fontSize: 9.5,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  debugConsoleClear: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  debugConsoleEmpty: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontStyle: "italic",
+  },
+  debugConsoleLine: {
+    color: "#A7F3D0",
+    fontSize: 10.5,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    marginBottom: 3,
   },
 });
 

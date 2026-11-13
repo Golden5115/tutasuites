@@ -4,8 +4,19 @@ import { signIn, signOut } from "@/auth"
 import { AuthError } from "next-auth"
 
 export async function loginAction(prevState: any, formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase()
+  const password = String(formData.get("password") ?? "")
+
+  if (!email || !password) {
+    return { error: "Please enter both email and password." }
+  }
+
   try {
-    await signIn("credentials", formData)
+    await signIn("credentials", {
+      email,
+      password,
+      redirectTo: "/dashboard",
+    })
   } catch (error) {
     if (error instanceof AuthError) {
       if ((error as any).cause?.err?.message === "AccountDeactivated" || (error as any).message?.includes("AccountDeactivated")) {
